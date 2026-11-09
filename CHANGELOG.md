@@ -2,6 +2,10 @@
 
 All notable changes to this plugin. Versions are tagged `vX.Y.Z`; the tag must match `version` in `orca-plugin.json`.
 
+## 0.6.1 - 2026-11-09
+
+- Store listing: a cover and four screenshots for the Orca plugin directory, and updated README screenshots that show the state colours and sub-issues. No change to the plugin itself.
+
 ## 0.6.0 - 2026-11-09
 
 - **Live issue**: the open issue refreshes itself every 10 seconds, only while the panel is visible, without touching a half-written comment. New setting *Refresh the open issue (seconds)*; 0 turns it off.

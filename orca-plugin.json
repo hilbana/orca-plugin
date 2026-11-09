@@ -3,11 +3,37 @@
   "manifestVersion": 2,
   "id": "hilbana",
   "name": "Hilbana",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Your Hilbana issues inside Orca: list, filters, search, detail, state changes, comments, a status bar counter and a button that runs the Hilbana command in your agent.",
   "repository": "https://github.com/hilbana/orca-plugin",
   "license": "MIT",
   "icon": "assets/icon.png",
+  "cover": {
+    "path": "docs/store/cover.png",
+    "alt": "Hilbana for Orca: the issue list with an issue open beside it, in the dark theme."
+  },
+  "screenshots": [
+    {
+      "path": "docs/store/list.png",
+      "alt": "The Hilbana issue list inside Orca, with workspace, project and state filters, search, and coloured state badges.",
+      "caption": "Every issue, one search away"
+    },
+    {
+      "path": "docs/store/detail.png",
+      "alt": "An issue open in the panel, with its state, description and sub-issues.",
+      "caption": "Open an issue and act on it"
+    },
+    {
+      "path": "docs/store/agent.png",
+      "alt": "The Run in agent button, highlighted, on an open issue.",
+      "caption": "Your agent is one click away"
+    },
+    {
+      "path": "docs/store/theme.png",
+      "alt": "The issue list in the dark and the light theme, side by side.",
+      "caption": "Dark or light, like your Orca"
+    }
+  ],
   "engines": {
     "orca": ">=1.4.250"
   },

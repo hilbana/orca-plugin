@@ -4,17 +4,21 @@
 import { defineCheck } from 'orca/testing'
 import type { IssueDetail, IssueRow } from './protocol'
 
-const row = (n: number, title: string, project: string, projectId: string, state: string, assignee: string | null, agentWorking: string | null = null): IssueRow => ({
-  id: `i-${n}`, identifier: `ACME-${n}`, title, state, stateTone: state === 'In Review' ? 'neutral' : 'success', stateType: 'started', project, projectId,
+const tones = { Backlog: 'danger', Todo: 'warning', 'In Progress': 'success', 'In Review': 'neutral', Done: 'accent' } as const
+const types = { Backlog: 'backlog', Todo: 'unstarted', 'In Progress': 'started', 'In Review': 'started', Done: 'completed' } as const
+type StateName = keyof typeof tones
+
+const row = (n: number, title: string, project: string, projectId: string, state: StateName, assignee: string | null, agentWorking: string | null = null): IssueRow => ({
+  id: `i-${n}`, identifier: `ACME-${n}`, title, state, stateTone: tones[state], stateType: types[state], project, projectId,
   assignee, priority: 'medium', agentWorking, labels: []
 })
 
 const rows = [
   row(142, 'Fix the checkout redirect on Safari', 'Acme Web', 'p-web', 'In Progress', 'Alex'),
   row(138, 'Add dark mode to the settings page', 'Acme Web', 'p-web', 'In Review', 'Sam', 'agent-1'),
-  row(151, 'Rate-limit the public search endpoint', 'Platform API', 'p-api', 'In Progress', null),
-  row(147, 'Onboarding emails land in spam', 'Acme Web', 'p-web', 'In Progress', 'Alex'),
-  row(133, 'Crash when opening a deleted invoice', 'Acme Mobile', 'p-mobile', 'In Review', 'Sam'),
+  row(151, 'Rate-limit the public search endpoint', 'Platform API', 'p-api', 'Todo', null),
+  row(147, 'Onboarding emails land in spam', 'Acme Web', 'p-web', 'Backlog', 'Alex'),
+  row(133, 'Crash when opening a deleted invoice', 'Acme Mobile', 'p-mobile', 'Done', 'Sam'),
   row(129, 'Migrate the image uploads to the new bucket', 'Platform API', 'p-api', 'In Progress', null)
 ]
 
@@ -27,7 +31,7 @@ const detail: IssueDetail = {
   ],
   stateId: 's-progress',
   labels: ['bug', 'checkout'],
-  relations: [{ type: 'blocks', issueId: 'i-151', identifier: 'ACME-151', title: 'Rate-limit the public search endpoint', state: 'In Progress', stateTone: 'success' }],
+  relations: [{ type: 'blocks', issueId: 'i-151', identifier: 'ACME-151', title: 'Rate-limit the public search endpoint', state: 'Todo', stateTone: 'neutral' }],
   description:
     'Safari drops the `redirect_uri` query string when the payment provider sends the customer back, so the order stays in **pending**.\n\n' +
     '1. Pay with a test card in Safari 17\n2. Wait for the redirect\n3. The order page shows no confirmation\n\nProbably related to ACME-138 and 147.',
@@ -36,6 +40,9 @@ const detail: IssueDetail = {
     { id: 'c2', author: 'Sam', body: 'The provider docs say the redirect keeps its query string, so this looks like our own router.', createdAt: '2026-11-09T11:40:00Z' }
   ]
 }
+
+// Short enough to be captured whole: very tall panels break Orca's screenshot of a scenario.
+const compact: IssueDetail = { ...detail, relations: [], comments: [] }
 
 const common = {
   'auth.status': { connected: true, url: 'https://app.hilbana.com/mcp', protection: 'os-keyring' as const },
@@ -54,18 +61,30 @@ const common = {
 
 export default defineCheck({
   connect: { requests: { ...common, 'auth.status': { connected: false, url: 'https://app.hilbana.com/mcp', protection: 'os-keyring' as const } } },
-  list: { requests: common },
+  list: { requests: common, persisted: { plugin: { scope: 'all' } } },
   // The branch names ACME-142, so following the Orca workspace opens that issue.
   detail: {
     requests: {
       ...common,
       'workspace.resolve': { key: 'acme-web', workspaceId: null, projectId: 'p-web', source: 'branch' as const, issue: { id: 'i-142', identifier: 'ACME-142' } },
+      'issue.get': compact,
+      'issues.resolve': []
+    },
+    persisted: { plugin: { scope: 'all' } },
+    events: [{ event: 'workspace.changed', payload: { context: { branch: 'acme-142-checkout-redirect', displayName: 'acme-web', terminals: [] } } }]
+  },
+  // The same issue with everything on it: related, mentioned and comments (tall: not for screenshots).
+  full: {
+    requests: {
+      ...common,
+      'workspace.resolve': { key: 'acme-web', workspaceId: null, projectId: 'p-web', source: 'branch' as const, issue: { id: 'i-142', identifier: 'ACME-142' } },
       'issue.get': detail,
       'issues.resolve': [
-        { id: 'i-138', identifier: 'ACME-138', title: 'Add dark mode to the settings page', state: 'In Review', stateTone: 'neutral' },
-        { id: 'i-147', identifier: 'ACME-147', title: 'Onboarding emails land in spam', state: 'In Progress', stateTone: 'success' }
+        { id: 'i-138', identifier: 'ACME-138', title: 'Add dark mode to the settings page', state: 'In Review', stateTone: 'neutral' as const },
+        { id: 'i-147', identifier: 'ACME-147', title: 'Onboarding emails land in spam', state: 'Backlog', stateTone: 'danger' as const }
       ]
     },
-    events: [{ event: 'workspace.changed', payload: { context: { branch: 'acme-142-checkout-redirect', displayName: 'acme-web', terminals: [] } } }]
+    persisted: { plugin: { scope: 'all' } },
+    events: [{ event: 'workspace.changed', payload: { context: { branch: 'acme-142-checkout-redirect', displayName: 'acme-web-full', terminals: [] } } }]
   }
 })

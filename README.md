@@ -63,7 +63,7 @@ Requested capabilities: `settings:own`, `secrets:own`, `storage:own`, `workspace
 
 ## Install
 
-In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250 and a Hilbana API key. The Free plan includes one agent key, and this plugin only needs a key, so you can use the one your agent already uses. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.6.0`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
+In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250 and a Hilbana API key. The Free plan includes one agent key, and this plugin only needs a key, so you can use the one your agent already uses. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.6.1`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 
