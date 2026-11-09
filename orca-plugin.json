@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stablyai/orca/main/docs/schemas/plugins/orca-plugin.v2.schema.json",
+  "manifestVersion": 2,
+  "id": "hilbana",
+  "name": "Hilbana",
+  "version": "0.4.0",
+  "description": "Your Hilbana issues inside Orca: list, filters, search, detail, state changes, comments, a status bar counter and a button that runs the Hilbana command in your agent.",
+  "repository": "https://github.com/hilbana/orca-plugin",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "engines": {
+    "orca": ">=1.4.250"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "hilbana",
+        "title": "Hilbana",
+        "icon": "blocks",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "settings": [
+      {
+        "key": "serverUrl",
+        "title": "Hilbana MCP server URL",
+        "description": "Must be https:// (http:// only for localhost). The API key is sent only to this URL. It is not stored here: paste it in the panel.",
+        "type": "string",
+        "default": "https://app.hilbana.com/mcp"
+      },
+      {
+        "key": "agentPrompt",
+        "title": "Prompt sent to the agent",
+        "description": "Typed into the focused workspace's agent when you press \"Run in agent\" on an issue. {identifier} is replaced by the issue identifier (e.g. DRAPPS-123). Default: the Hilbana plugin command. Use plain text for agents without slash commands.",
+        "type": "string",
+        "default": "/hilbana:trabajar-issue {identifier}"
+      }
+    ],
+    "statusBarItems": [
+      { "id": "queue", "text": "Hilbana —", "icon": "blocks", "tooltip": "Open the Hilbana panel to connect." }
+    ]
+  },
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "agent:read" },
+    { "kind": "terminal:send" },
+    { "kind": "settings:own" },
+    { "kind": "secrets:own" },
+    { "kind": "storage:own" }
+  ]
+}
