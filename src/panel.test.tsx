@@ -249,3 +249,39 @@ test('remembers the Hilbana workspace per Orca workspace, and switches to it whe
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
+
+test('the panel follows Orca\'s language and tells the worker', async () => {
+  const locales: string[] = []
+  const requests = {
+    'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+    'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
+    'projects.list': () => [],
+    'states.list': () => [],
+    'issues.list': () => ({ rows: [row], total: 1 }),
+    'issue.get': () => detail({ comments: [{ id: 'c1', author: null, body: 'hi', createdAt: '2026-01-01T10:00:00Z' }] }),
+    'agents.list': () => [{ terminalId: 't1', title: null, agent: null, state: 'working' as const }],
+    'locale.set': ({ locale }: { locale: string }) => { locales.push(locale); return { ok: true as const } }
+  }
+
+  // Spanish
+  const es = await mount(panel, { host: mockHost({ requests }), locale: 'es-ES' })
+  await es.settled()
+  assert.ok(es.find({ label: 'Buscar' }), 'the search box is in Spanish')
+  assert.ok(es.find({ label: 'Seguir el workspace de Orca' }), 'so is the follow switch')
+  await es.press({ label: 'DRAPPS-1 Hello world' })
+  assert.ok(es.find({ text: 'Tomar' }), 'Claim becomes Tomar')
+  assert.ok(es.find({ text: 'Ejecutar en el agente' }), 'Run in agent becomes Ejecutar en el agente')
+  assert.ok(es.find({ text: /El agente está trabajando/ }), 'agent states are translated too')
+  assert.ok(es.find({ label: 'Sistema' }), 'a comment without an author says Sistema')
+  assert.equal(es.find({ text: /Description|Claim|Comments/ }), null, 'no English is left in the detail view')
+  await es.unmount()
+
+  // English again (the default, and any non-Spanish locale)
+  const en = await mount(panel, { host: mockHost({ requests }), locale: 'fr-FR' })
+  await en.settled()
+  await en.press({ label: 'DRAPPS-1 Hello world' })
+  assert.ok(en.find({ text: 'Claim' }), 'other languages fall back to English')
+  await en.unmount()
+
+  assert.deepEqual(locales, ['es-ES', 'fr-FR'])
+})

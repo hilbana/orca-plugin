@@ -1,3 +1,5 @@
+import { t } from './i18n'
+
 // Minimal client for Hilbana's MCP (stateless Streamable HTTP, JSON response).
 // No dependencies: one JSON-RPC POST per call. The API key travels ONLY in the Authorization
 // header to the configured URL and is never written to logs or error messages.
@@ -27,11 +29,11 @@ export function validateUrl(raw: string): URL {
   try {
     url = new URL(raw)
   } catch {
-    throw new Error('The Hilbana server URL is not valid.')
+    throw new Error(t('errUrlInvalid'))
   }
   const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
   if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) {
-    throw new Error('The Hilbana URL must be https:// (http:// is only allowed for localhost).')
+    throw new Error(t('errUrlHttps'))
   }
   return url
 }
@@ -39,7 +41,7 @@ export function validateUrl(raw: string): URL {
 export function validateKey(key: string): string {
   const trimmed = key.trim()
   if (!/^hil_[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
-    throw new Error('A Hilbana API key starts with "hil_".')
+    throw new Error(t('errKeyFormat'))
   }
   return trimmed
 }
@@ -70,17 +72,17 @@ export async function callTool<T>(
     signal: signal ?? AbortSignal.timeout(20_000)
   })
   if (response.status === 401 || response.status === 403) {
-    throw new Error('Hilbana rejected the API key (401/403). Check it or create a new one.')
+    throw new Error(t('errRejected'))
   }
-  if (!response.ok) throw new Error(`Hilbana answered HTTP ${response.status}.`)
+  if (!response.ok) throw new Error(t('errHttp', { status: response.status }))
   const message = await readRpc(response)
-  if (message.error) throw new Error(`Hilbana: ${message.error.message ?? 'MCP error'}`)
+  if (message.error) throw new Error(t('errMcp', { message: message.error.message ?? t('errMcpUnknown') }))
   const text = message.result?.content?.find((part) => part.type === 'text')?.text ?? ''
-  if (message.result?.isError) throw new Error(text || `Tool ${name} failed.`)
+  if (message.result?.isError) throw new Error(text || t('errToolFailed', { name }))
   try {
     return JSON.parse(text) as T
   } catch {
-    throw new Error(`Tool ${name} did not return JSON.`)
+    throw new Error(t('errNotJson', { name }))
   }
 }
 
@@ -98,7 +100,7 @@ async function readRpc(response: Response): Promise<RpcMessage> {
       .filter((line) => line.startsWith('data:'))
       .map((line) => line.slice(5).trim())
       .pop()
-    if (!data) throw new Error('Empty MCP response.')
+    if (!data) throw new Error(t('errEmptyMcp'))
     return JSON.parse(data) as RpcMessage
   }
   return JSON.parse(body) as RpcMessage

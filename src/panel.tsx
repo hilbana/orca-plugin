@@ -6,6 +6,7 @@ import {
   Callout,
   Card,
   EmptyState,
+  env,
   Heading,
   Image,
   IconButton,
@@ -26,6 +27,7 @@ import {
   Text,
   type PanelContext
 } from 'orca'
+import { langOf, setLang, stateName, t } from './i18n'
 import { extractRefs } from './match'
 import type { AgentInfo, IssueDetail, IssueRef, IssueRow, Scope, WorkflowState } from './protocol'
 
@@ -114,7 +116,7 @@ async function refreshAgents(): Promise<void> {
 async function runInAgent(identifier: string): Promise<void> {
   await guard(async () => {
     const { sent } = await plugin.request('agent.send', { terminalId: read(agentTerminal), identifier })
-    set(notice, `Sent to the agent: ${sent}`)
+    set(notice, t('sentToAgent', { text: sent }))
     await refreshAgents()
   })
 }
@@ -230,7 +232,7 @@ async function followWorkspace(displayName: string, branch: string): Promise<voi
   if (read(workspaceId)) input.workspaceId = read(workspaceId)
   const found = await plugin.request('workspace.resolve', input)
   set(orcaKey, found.key)
-  set(linkNote, found.source === 'link' ? `Remembered for “${found.key}”.` : found.source === 'name' ? `Matched by name: “${found.key}”.` : null)
+  set(linkNote, found.source === 'link' ? t('rememberedFor', { key: found.key }) : found.source === 'name' ? t('matchedByName', { key: found.key }) : null)
   // A remembered Hilbana workspace first (if you still belong to it), then the project inside it.
   const switching = Boolean(found.workspaceId) && found.workspaceId !== read(workspaceId) && read(workspaces).some((w) => w.id === found.workspaceId)
   if (switching) await guard(() => switchWorkspace(found.workspaceId!))
@@ -261,11 +263,13 @@ async function rememberChoice(): Promise<void> {
   const chosenProject = read(projectId) || null
   const chosenWorkspace = read(workspaceId) || null
   await plugin.request('workspace.link', { key, projectId: chosenProject, workspaceId: chosenWorkspace })
-  set(linkNote, chosenProject || chosenWorkspace ? `Remembered for “${key}”.` : null)
+  set(linkNote, chosenProject || chosenWorkspace ? t('rememberedFor', { key }) : null)
 }
 
 /** Runs once before the first render. */
 export function setup(ctx: PanelContext): void {
+  setLang(langOf(env.locale))
+  void plugin.request('locale.set', { locale: env.locale }).catch(() => undefined) // the worker speaks the same language
   ctx.subscriptions.push(plugin.on('auth.changed', ({ connected: c }) => set(connected, c)))
   ready = bootstrap().catch((e) => set(error, message(e)))
   ctx.subscriptions.push(
@@ -289,14 +293,13 @@ function Connect() {
     <Stack gap="sm">
       <Row gap="xs">
         <Image src="assets/icon.png" alt="Hilbana" size="xs" />
-        <Heading>Connect to Hilbana</Heading>
+        <Heading>{t('connectTitle')}</Heading>
       </Row>
       <Text muted size="sm">
-        Create an API key in Hilbana (read-only is enough to browse) and paste it here. It is stored
-        encrypted in your system keyring, not in this plugin.
+        {t('connectHelp')}
       </Text>
       <Input
-        label="API key"
+        label={t('apiKey')}
         type="password"
         placeholder="hil_…"
         value={read(keyDraft)}
@@ -304,7 +307,7 @@ function Connect() {
         onSubmit={connect}
       />
       <Button onPress={connect} disabled={read(busy) || !read(keyDraft).trim()}>
-        Connect
+        {t('connect')}
       </Button>
     </Stack>
   )
@@ -312,17 +315,17 @@ function Connect() {
 
 function scopeOptions(list: WorkflowState[]) {
   return [
-    { value: 'started', label: 'In progress' },
-    { value: 'unstarted', label: 'Not started' },
-    { value: 'open', label: 'All open' },
-    { value: 'all', label: 'All (including closed)' },
-    { value: 'triage', label: 'Category: Triage' },
-    { value: 'backlog', label: 'Category: Backlog' },
-    { value: 'completed', label: 'Category: Done' },
-    { value: 'canceled', label: 'Category: Canceled' },
+    { value: 'started', label: t('scopeStarted') },
+    { value: 'unstarted', label: t('scopeUnstarted') },
+    { value: 'open', label: t('scopeOpen') },
+    { value: 'all', label: t('scopeAll') },
+    { value: 'triage', label: t('catTriage') },
+    { value: 'backlog', label: t('catBacklog') },
+    { value: 'completed', label: t('catDone') },
+    { value: 'canceled', label: t('catCanceled') },
     ...[...list]
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-      .map((state) => ({ value: `state:${state.name}`, label: `State: ${state.name}` }))
+      .map((state) => ({ value: `state:${state.name}`, label: t('stateOption', { name: state.name }) }))
   ]
 }
 
@@ -344,7 +347,7 @@ function Board() {
   const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const pjNeedle = norm(read(projectFilter).trim())
   const pjOptions = [
-    { value: ALL, label: 'All projects' },
+    { value: ALL, label: t('allProjects') },
     ...[...read(projects)]
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
       // The selected project never disappears from the list, even if the filter excludes it.
@@ -356,17 +359,17 @@ function Board() {
       <Row justify="between">
         <Row gap="xs">
           <Image src="assets/icon.png" alt="Hilbana" size="xs" />
-          <Heading>Issues</Heading>
+          <Heading>{t('issues')}</Heading>
         </Row>
         <Row gap="xs">
           <Badge tone="accent">{rows.length}</Badge>
-          <IconButton icon="refresh" label="Reload" onPress={() => guard(loadIssues)} disabled={read(busy)} />
-          <IconButton icon="close" label="Disconnect" onPress={disconnect} />
+          <IconButton icon="refresh" label={t('reload')} onPress={() => guard(loadIssues)} disabled={read(busy)} />
+          <IconButton icon="close" label={t('disconnect')} onPress={disconnect} />
         </Row>
       </Row>
       {wsOptions.length > 1 ? (
         <Select
-          label="Workspace"
+          label={t('workspace')}
           labelHidden
           value={read(workspaceId)}
           options={wsOptions}
@@ -376,17 +379,17 @@ function Board() {
           }}
         />
       ) : null}
-      <Switch label="Follow the Orca workspace" checked={read(follow)} onChange={(v) => set(follow, v)} />
+      <Switch label={t('followSwitch')} checked={read(follow)} onChange={(v) => set(follow, v)} />
       <Input
-        label="Filter projects"
+        label={t('filterProjectsLabel')}
         labelHidden
         type="search"
-        placeholder="Filter projects…"
+        placeholder={t('filterProjects')}
         value={read(projectFilter)}
         onChange={(v) => set(projectFilter, v)}
       />
       <Select
-        label="Project"
+        label={t('project')}
         labelHidden
         value={read(projectId) || ALL}
         options={pjOptions}
@@ -398,7 +401,7 @@ function Board() {
       />
       {read(linkNote) ? <Text muted size="xs">{read(linkNote)}</Text> : null}
       <Select
-        label="State"
+        label={t('state')}
         labelHidden
         value={read(scope)}
         disabled={searching}
@@ -406,21 +409,21 @@ function Board() {
         onChange={(v) => { set(scope, v as Scope); void guard(loadIssues) }}
       />
       <Row gap="xs">
-        <Input label="Search" labelHidden type="search" placeholder="Search issues…" value={read(search)} onChange={typeSearch} onSubmit={runSearch} />
-        <IconButton icon="search" label="Search" onPress={runSearch} disabled={read(busy)} />
+        <Input label={t('search')} labelHidden type="search" placeholder={t('searchIssues')} value={read(search)} onChange={typeSearch} onSubmit={runSearch} />
+        <IconButton icon="search" label={t('search')} onPress={runSearch} disabled={read(busy)} />
       </Row>
       {searching ? (
-        <Callout tone="accent">Results for “{read(activeQuery)}” across all states (id, title and text). State filters do not apply.</Callout>
+        <Callout tone="accent">{t('searchNotice', { q: read(activeQuery) })}</Callout>
       ) : null}
       {read(total) > read(issues).length ? (
-        <Callout tone="warning">Showing {read(issues).length} of {read(total)}. Narrow it down by project or state.</Callout>
+        <Callout tone="warning">{t('showing', { n: read(issues).length, total: read(total) })}</Callout>
       ) : null}
       {read(busy) && read(issues).length === 0 ? (
-        <Spinner label="Loading issues" />
+        <Spinner label={t('loadingIssues')} />
       ) : rows.length === 0 ? (
-        <EmptyState icon="check" title="No issues" description="Nothing matches the filter." />
+        <EmptyState icon="check" title={t('noIssues')} description={t('noMatch')} />
       ) : (
-        <List label="Issues">
+        <List label={t('issues')}>
           {rows.map((issue) => (
             <ListItem
               key={issue.id}
@@ -437,7 +440,7 @@ function Board() {
 }
 
 const relationLabel = (type: string) =>
-  type === 'blocks' ? 'Blocks' : type === 'blocked_by' ? 'Blocked by' : type === 'relates' ? 'Related' : type
+  type === 'blocks' ? t('relBlocks') : type === 'blocked_by' ? t('relBlockedBy') : type === 'relates' ? t('relRelates') : type
 
 /** Issues you can jump to; renders nothing when empty. */
 function RefList({ title, items }: { title: string; items: { id: string; label: string; state: string }[] }) {
@@ -459,18 +462,18 @@ function AgentRun({ identifier }: { identifier: string }) {
   const list = read(agents)
   const target = list.find((agent) => agent.terminalId === read(agentTerminal)) ?? list[0]
   const idle = target?.state === 'waiting' || target?.state === 'done'
-  const name = (agent: AgentInfo) => `${agent.agent ?? agent.title ?? 'Agent'} · ${agent.state}`
+  const name = (agent: AgentInfo) => `${agent.agent ?? agent.title ?? t('agentLabel')} · ${stateName(agent.state)}`
   // The button is always visible; when it cannot be used, the line below says why.
   const status = !target
-    ? 'No agent detected in the focused Orca workspace. Start your agent in a terminal of this workspace (Orca must recognise it as an agent).'
+    ? t('noAgent')
     : idle
-      ? `Target: ${name(target)}`
-      : `The agent is ${target.state}; it can be used once it is idle.`
+      ? t('agentTarget', { name: name(target) })
+      : t('agentBusy', { state: stateName(target.state) })
   return (
     <Stack gap="xs">
       {list.length > 1 && target ? (
         <Select
-          label="Agent"
+          label={t('agentLabel')}
           labelHidden
           value={target.terminalId}
           options={list.map((agent) => ({ value: agent.terminalId, label: name(agent) }))}
@@ -481,9 +484,9 @@ function AgentRun({ identifier }: { identifier: string }) {
         icon="agent"
         disabled={read(busy) || !idle}
         onPress={() => void runInAgent(identifier)}
-        tooltip="Types the configured prompt (by default the Hilbana plugin command) into the agent's terminal"
+        tooltip={t('runTooltip')}
       >
-        Run in agent
+        {t('runInAgent')}
       </Button>
       <Text muted size="xs">{status}</Text>
       {read(notice) ? <Text size="xs" tone="success">{read(notice)}</Text> : null}
@@ -502,10 +505,10 @@ function Detail({ issue }: { issue: IssueDetail }) {
     <Stack gap="sm">
       <Row justify="between">
         <Row gap="xs">
-          <IconButton icon="close" label="Back" onPress={closeDetail} />
+          <IconButton icon="close" label={t('back')} onPress={closeDetail} />
           <Heading level={2}>{issue.identifier}</Heading>
         </Row>
-        <IconButton icon="refresh" label="Reload issue" disabled={read(busy)} onPress={() => void openIssue(issue.id)} />
+        <IconButton icon="refresh" label={t('reloadIssue')} disabled={read(busy)} onPress={() => void openIssue(issue.id)} />
       </Row>
       <Text weight="semibold">{issue.title}</Text>
       <Row gap="xs" wrap>
@@ -514,52 +517,52 @@ function Detail({ issue }: { issue: IssueDetail }) {
         {issue.assignee ? <Badge>{issue.assignee}</Badge> : null}
         {issue.labels.map((label) => <Badge key={label}>{label}</Badge>)}
       </Row>
-      {issue.agentWorking ? <Text size="sm" tone="warning">🤖 In progress: {issue.agentWorking}</Text> : null}
+      {issue.agentWorking ? <Text size="sm" tone="warning">{t('agentInProgress', { name: issue.agentWorking ?? '' })}</Text> : null}
 
       <Select
-        label="Estado"
+        label={t('state')}
         value={issue.stateId ?? ''}
-        placeholder="Change state"
+        placeholder={t('changeState')}
         disabled={read(busy) || read(states).length === 0}
         options={read(states).map((state) => ({ value: state.id, label: state.name }))}
         onChange={(v) => { if (v && v !== issue.stateId) void act(() => plugin.request('issue.setState', { id: issue.id, stateId: v })) }}
       />
-      <Text muted size="xs">Moving it to an “in progress” state claims it for your user.</Text>
+      <Text muted size="xs">{t('claimNote')}</Text>
       <Row gap="xs">
         {taken ? (
-          <Button variant="outline" icon="stop" disabled={read(busy)} onPress={() => void act(() => plugin.request('issue.release', { id: issue.id }))}>Release</Button>
+          <Button variant="outline" icon="stop" disabled={read(busy)} onPress={() => void act(() => plugin.request('issue.release', { id: issue.id }))}>{t('release')}</Button>
         ) : (
-          <Button variant="outline" icon="play" disabled={read(busy)} onPress={() => void act(() => plugin.request('issue.claim', { id: issue.id }))}>Claim</Button>
+          <Button variant="outline" icon="play" disabled={read(busy)} onPress={() => void act(() => plugin.request('issue.claim', { id: issue.id }))}>{t('claim')}</Button>
         )}
       </Row>
 
       <AgentRun identifier={issue.identifier} />
 
-      <Heading level={3}>Description</Heading>
-      {issue.description.trim() ? <Markdown content={issue.description} /> : <Text muted size="sm">No description.</Text>}
+      <Heading level={3}>{t('description')}</Heading>
+      {issue.description.trim() ? <Markdown content={issue.description} /> : <Text muted size="sm">{t('noDescription')}</Text>}
 
-      <RefList title="Related" items={issue.relations.filter((r) => r.issueId).map((r) => ({ id: r.issueId!, label: `${relationLabel(r.type)} · ${r.identifier}${r.title ? ' ' + r.title : ''}`, state: r.state }))} />
+      <RefList title={t('related')} items={issue.relations.filter((r) => r.issueId).map((r) => ({ id: r.issueId!, label: `${relationLabel(r.type)} · ${r.identifier}${r.title ? ' ' + r.title : ''}`, state: r.state }))} />
       <RefList
-        title="Mentioned"
+        title={t('mentioned')}
         items={read(mentions)
           .filter((m) => !issue.relations.some((r) => r.issueId === m.id))
           .map((m) => ({ id: m.id, label: `${m.identifier} ${m.title}`, state: m.state ?? '' }))}
       />
 
-      <Heading level={3}>Comments ({issue.comments.length})</Heading>
+      <Heading level={3}>{t('comments')} ({issue.comments.length})</Heading>
       <Textarea
-        label="New comment"
+        label={t('newComment')}
         labelHidden
         rows={4}
-        placeholder="Write a comment… (Ctrl+Enter to send)"
+        placeholder={t('commentPlaceholder')}
         value={read(commentDraft)}
         onChange={(v) => set(commentDraft, v)}
         onSubmit={sendComment}
       />
-      <Button disabled={read(busy) || !read(commentDraft).trim()} onPress={sendComment}>Comment</Button>
+      <Button disabled={read(busy) || !read(commentDraft).trim()} onPress={sendComment}>{t('comment')}</Button>
       {/* Newest first. */}
       {[...issue.comments].sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt))).map((comment) => (
-        <Card key={comment.id} title={comment.author ?? 'System'} description={new Date(comment.createdAt).toLocaleString()}>
+        <Card key={comment.id} title={comment.author ?? t('system')} description={new Date(comment.createdAt).toLocaleString(env.locale)}>
           <Markdown content={comment.body} />
         </Card>
       ))}
@@ -571,8 +574,8 @@ export default function Panel() {
   const state = read(connected)
   return (
     <Stack gap="md">
-      {read(error) ? <Callout tone="danger" title="Error">{read(error)}</Callout> : null}
-      {state === null ? <Spinner label="Connecting" /> : !state ? <Connect /> : read(detail) ? <Detail issue={read(detail)!} /> : <Board />}
+      {read(error) ? <Callout tone="danger" title={t('error')}>{read(error)}</Callout> : null}
+      {state === null ? <Spinner label={t('connecting')} /> : !state ? <Connect /> : read(detail) ? <Detail issue={read(detail)!} /> : <Board />}
     </Stack>
   )
 }

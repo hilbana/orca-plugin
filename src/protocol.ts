@@ -42,6 +42,8 @@ export type WorkflowState = { id: string; name: string; type: string }
 
 declare module 'orca' {
   interface PluginRequests {
+    /** Tells the worker Orca's UI language so its messages match the panel. */
+    'locale.set': { input: { locale: string }; output: { ok: true } }
     /** Is an API key saved? Never returns the key. */
     'auth.status': { output: { connected: boolean; url: string; protection: string } }
     /** Validates the key against Hilbana and, if it works, saves it in Orca's keyring. */

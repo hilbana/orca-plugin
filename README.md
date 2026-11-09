@@ -1,5 +1,7 @@
 # Hilbana for Orca
 
+[![CI](https://github.com/hilbana/orca-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/hilbana/orca-plugin/actions/workflows/ci.yml)
+
 Your [Hilbana](https://hilbana.com) issues inside [Orca](https://github.com/stablyai/orca): a sidebar panel to browse, search and update issues, plus a status bar counter of what is in progress.
 
 ## Features
@@ -12,6 +14,7 @@ Your [Hilbana](https://hilbana.com) issues inside [Orca](https://github.com/stab
 - **Follow Orca's workspace**: when you switch workspace in Orca, the panel selects the matching Hilbana workspace and project. It looks, in order, at (1) the issue named by the branch (`drapps-2139-some-slug` → `DRAPPS-2139`, which it also opens), (2) the workspace and project you picked by hand for that Orca workspace, which it remembers, and (3) a name match (`acme-shop.com` → the project `acme-shop`). It never guesses between equally good matches. Turn it off with the *Follow the Orca workspace* switch.
 - **Run in agent**: a button in every issue that types a prompt into the agent running in Orca's focused workspace. By default it sends the Hilbana plugin command, `/hilbana:trabajar-issue DRAPPS-123`; change it with the *Prompt sent to the agent* setting (`{identifier}` is replaced by the issue identifier, and other agents can use plain text). If several agents are running you pick the target, and the button stays disabled while the agent is working or waiting for permission, so it never interrupts it.
 - **Status bar**: the number of issues in progress.
+- **English and Spanish**: the panel follows Orca's UI language.
 
 Launching a worktree and an agent straight from an issue is planned for a later release.
 
@@ -31,7 +34,7 @@ Requested capabilities: `settings:own`, `secrets:own`, `storage:own`, `workspace
 
 ## Install
 
-In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250.
+In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.5.0`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 

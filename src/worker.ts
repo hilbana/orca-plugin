@@ -3,6 +3,7 @@
 // never in the repo, in settings or in storage.
 import type { OrcaWorkerApi } from 'orca/worker'
 import type { AgentInfo, IssueDetail, IssuePage, IssueRef, IssueRow, Relation, WorkflowState } from './protocol'
+import { getLang, langOf, setLang, stateName, t } from './i18n'
 import { bestProjectByName, exactIdentifier, matchesLocally } from './match'
 import {
   callTool,
@@ -44,7 +45,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
   const apiKey = async (): Promise<string> => {
     const key = await orca.secrets.get(KEY)
-    if (!key) throw new Error('The Hilbana API key is missing. Connect it from the panel.')
+    if (!key) throw new Error(t('errKeyMissing'))
     return key
   }
   const call = async <T>(name: string, args: Record<string, unknown> = {}, signal?: AbortSignal) =>
@@ -56,7 +57,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     try {
       if (!(await orca.secrets.get(KEY))) {
         await orca.host.call('statusBar.update', {
-          id: 'queue', text: 'Hilbana —', tone: 'neutral', tooltip: 'Open the Hilbana panel to connect.'
+          id: 'queue', text: 'Hilbana —', tone: 'neutral', tooltip: t('statusConnect')
         })
         return
       }
@@ -65,17 +66,27 @@ export default function activate(orca: OrcaWorkerApi): void {
         id: 'queue',
         text: `Hilbana ${started.length}`,
         tone: 'neutral',
-        tooltip: `${started.length} issues in progress`
+        tooltip: t('statusCount', { n: started.length })
       })
     } catch (error) {
       await orca.host
         .call('statusBar.update', {
           id: 'queue', text: 'Hilbana ✕', tone: 'warning',
-          tooltip: error instanceof Error ? error.message : 'Error querying Hilbana'
+          tooltip: error instanceof Error ? error.message : t('statusError')
         })
         .catch(() => undefined)
     }
   }
+
+  orca.panels.handle('locale.set', async ({ locale }) => {
+    const lang = langOf(locale)
+    if (lang !== getLang()) {
+      setLang(lang)
+      void refreshStatusBar()
+    }
+    await orca.storage.set('lang', lang) // remembered for the status bar after a restart
+    return { ok: true as const }
+  })
 
   orca.panels.handle('auth.status', async () => ({
     connected: Boolean(await orca.secrets.get(KEY)),
@@ -189,7 +200,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     } catch (error) {
       const text = error instanceof Error ? error.message : ''
       if (text.includes(name) && /not found|unknown|no such/i.test(text)) {
-        throw new Error('Your API key is read-only. Create one with write permissions for this action.')
+        throw new Error(t('errReadOnly'))
       }
       throw error
     }
@@ -275,12 +286,12 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   orca.panels.handle('agent.send', async ({ terminalId, identifier }) => {
     // The identifier is the only thing interpolated into the prompt: keep it strict.
-    if (!IDENTIFIER.test(identifier)) throw new Error('Invalid issue identifier.')
+    if (!IDENTIFIER.test(identifier)) throw new Error(t('errBadIdentifier'))
     // Re-checked right before sending: an agent that started working meanwhile must not be interrupted.
     const target = (await listAgents()).find((agent) => agent.terminalId === terminalId)
-    if (!target) throw new Error('That agent is no longer in the focused workspace.')
+    if (!target) throw new Error(t('errAgentGone'))
     if (target.state === 'working' || target.state === 'blocked') {
-      throw new Error(`The agent is ${target.state}. Wait until it is idle and try again.`)
+      throw new Error(t('errAgentBusy', { state: stateName(target.state) }))
     }
     const configured = (await orca.settings.get('agentPrompt')) as unknown
     const template = typeof configured === 'string' && configured.trim() ? configured : DEFAULT_PROMPT
@@ -316,13 +327,16 @@ export default function activate(orca: OrcaWorkerApi): void {
     return getDetail(id)
   })
   orca.panels.handle('issue.comment', async ({ id, body }) => {
-    if (!body.trim()) throw new Error('The comment is empty.')
+    if (!body.trim()) throw new Error(t('errCommentEmpty'))
     await write('add_comment', { issueId: id, body })
     return getDetail(id)
   })
 
   // Keeps the status bar counter fresh even when the panel is closed.
-  void refreshStatusBar()
+  void Promise.resolve(orca.storage.get('lang'))
+    .then((stored) => { if (stored === 'es' || stored === 'en') setLang(stored) })
+    .catch(() => undefined)
+    .then(() => refreshStatusBar())
   timer = setInterval(() => void refreshStatusBar(), POLL_MS)
   orca.log('Hilbana plugin active')
 }

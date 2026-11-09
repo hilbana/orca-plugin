@@ -3,6 +3,7 @@ import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import * as main from './worker'
 import { validateKey, validateUrl } from './hilbana'
 import { extractRefs } from './match'
+import { setLang, t as translate } from './i18n'
 
 const rpc = (payload: unknown) =>
   new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } }), {
@@ -299,6 +300,33 @@ test('a link remembers the Hilbana workspace too, and scopes the lookups to it',
     assert.equal((await worker.request('workspace.resolve', { displayName: 'beta.com', branch: '', workspaceId: 'wA' })).workspaceId, null)
   } finally {
     globalThis.fetch = original
+    await worker.deactivate()
+  }
+})
+
+test('the worker speaks the language the panel announces, and remembers it', async () => {
+  const host = mockHost({ results: { 'agents.list': agent('done') } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await worker.request('locale.set', { locale: 'es-ES' })
+    assert.equal(host.data().storage.lang, 'es')
+    await assert.rejects(() => worker.request('agent.send', { terminalId: 't1', identifier: 'nope' }), /no válido/)
+    await worker.request('locale.set', { locale: 'en-US' })
+    await assert.rejects(() => worker.request('agent.send', { terminalId: 't1', identifier: 'nope' }), /Invalid issue identifier/)
+  } finally {
+    setLang('en')
+    await worker.deactivate()
+  }
+})
+
+test('a language remembered by an earlier session is used right at startup', async () => {
+  const worker = await mountWorker(main, { host: mockHost({ results: { 'agents.list': agent('done') }, storage: { lang: 'es' } }) })
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 20)) // the stored language loads asynchronously
+    await assert.rejects(() => worker.request('agent.send', { terminalId: 't1', identifier: 'nope' }), /no válido/)
+    assert.equal(translate('connect'), 'Conectar')
+  } finally {
+    setLang('en')
     await worker.deactivate()
   }
 })

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  # The Orca release whose bundled CLI runs the checks. The plugin supports Orca >= 1.4.250
+  # (engines.orca); bump this to test against a newer one.
+  ORCA_VERSION: '1.4.253'
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+
+      - name: Install the Orca CLI (pinned release, extracted without installing)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/orca.deb" \
+            "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/orca-ide_${ORCA_VERSION}_amd64.deb"
+          dpkg -x "$RUNNER_TEMP/orca.deb" "$RUNNER_TEMP/orca"
+          echo "ORCA=$RUNNER_TEMP/orca/opt/Orca/resources/bin/orca-ide" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/orca/opt/Orca/resources/bin/orca-ide" --version
+
+      - name: No secrets in the repository
+        run: |
+          if git grep -nE '(gh[pousr]_[A-Za-z0-9]{30,}|sk_live_[A-Za-z0-9]+|-----BEGIN [A-Z ]*PRIVATE KEY-----)'; then
+            echo "A secret-looking value is committed." >&2
+            exit 1
+          fi
+
+      - name: Write the Orca typings
+        run: '"$ORCA" plugin types .'
+
+      - name: Typecheck
+        run: npx --yes -p typescript@7.0.2 tsc --noEmit -p .
+
+      - name: Validate the manifest
+        run: '"$ORCA" plugin validate .'
+
+      - name: Check the panel renders
+        run: '"$ORCA" plugin check .'
+
+      - name: Test
+        run: '"$ORCA" plugin test .'
+
+      - name: The tag matches the manifest version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(node -p "require('./orca-plugin.json').version")"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match orca-plugin.json version $version." >&2
+            exit 1
+          fi
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Publish the GitHub release from the CHANGELOG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '/^## /{p=($2==v)} p' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $version." >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Hilbana for Orca $version" --notes-file notes.md
