@@ -393,3 +393,80 @@ test('every state is a badge in the tone of its Hilbana colour, in the list and 
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
+
+/** Mounts the panel with the issue open, over a server whose copy of the issue can change. */
+async function openWith(server: { current: IssueDetail; reads: number }, settingsValue: number) {
+  const host = mockHost({
+    settings: { refreshSeconds: settingsValue },
+    requests: {
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
+      'projects.list': () => [],
+      'states.list': () => [],
+      'issues.list': () => ({ rows: [row], total: 1 }),
+      'issue.get': () => { server.reads++; return server.current }
+    }
+  })
+  const view = await mount(panel, { host })
+  await view.settled()
+  await view.press({ label: 'DRAPPS-1 Hello world' })
+  return view
+}
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+test('the open issue refreshes by itself when it changes on the server, keeping the comment being typed', async () => {
+  const server = { current: detail(), reads: 0 }
+  const view = await openWith(server, 1)
+  assert.equal(view.find({ type: 'Badge', text: 'In Progress' })?.props.tone, 'success')
+  await view.type({ label: 'New comment' }, 'half-written reply')
+
+  // Somebody finishes the issue and comments, in the web app.
+  server.current = detail({ state: 'Done', stateTone: 'accent', agentWorking: 'agent-1', comments: [{ id: 'c9', author: 'Sam', body: 'Shipped it', createdAt: '2026-11-09T12:00:00Z' }] })
+  await wait(1400)
+  await view.settled()
+
+  assert.equal(view.find({ type: 'Badge', text: 'Done' })?.props.tone, 'accent', 'the new state is shown')
+  assert.equal(view.find({ type: 'Badge', text: 'In Progress' }), null, 'and the old one is gone')
+  assert.ok(view.find({ text: /Shipped it/ }), 'so is the new comment')
+  assert.ok(view.find({ text: /agent-1/ }), 'and the agent that took it')
+  assert.equal(view.valueOf({ label: 'New comment' }), 'half-written reply', 'the draft is untouched')
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('it can be turned off with the setting, and it pauses while the panel is hidden', async () => {
+  // Off: 0 seconds.
+  const off = { current: detail(), reads: 0 }
+  const viewOff = await openWith(off, 0)
+  const readsBefore = off.reads
+  off.current = detail({ state: 'Done', stateTone: 'accent' })
+  await wait(1400)
+  await viewOff.settled()
+  assert.equal(off.reads, readsBefore, 'no reads at all')
+  assert.ok(viewOff.find({ type: 'Badge', text: 'In Progress' }), 'so the old state stays')
+  await viewOff.unmount()
+
+  // On, but hidden: it does not read; it catches up once visible again.
+  const on = { current: detail(), reads: 0 }
+  const view = await openWith(on, 1)
+  await view.setVisible(false)
+  const hiddenFrom = on.reads
+  on.current = detail({ state: 'Done', stateTone: 'accent' })
+  await wait(1400)
+  assert.equal(on.reads, hiddenFrom, 'hidden: it does not read')
+  await view.setVisible(true)
+  await wait(1400)
+  await view.settled()
+  assert.ok(view.find({ type: 'Badge', text: 'Done' }), 'visible again: it catches up')
+  await view.unmount()
+})
+
+test('it does not re-read anything when no issue is open', async () => {
+  const server = { current: detail(), reads: 0 }
+  const view = await openWith(server, 1)
+  await view.press({ label: 'Back' })
+  const reads = server.reads
+  await wait(1400)
+  assert.equal(server.reads, reads, 'with the list showing there is nothing to refresh')
+  await view.unmount()
+})

@@ -3,7 +3,7 @@
   "manifestVersion": 2,
   "id": "hilbana",
   "name": "Hilbana",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Your Hilbana issues inside Orca: list, filters, search, detail, state changes, comments, a status bar counter and a button that runs the Hilbana command in your agent.",
   "repository": "https://github.com/hilbana/orca-plugin",
   "license": "MIT",
@@ -38,6 +38,15 @@
         "description": "Typed into the focused workspace's agent when you press \"Run in agent\" on an issue. {identifier} is replaced by the issue identifier (e.g. DRAPPS-123). Default: the Hilbana plugin command. Use plain text for agents without slash commands.",
         "type": "string",
         "default": "/hilbana:trabajar-issue {identifier}"
+      },
+      {
+        "key": "refreshSeconds",
+        "title": "Refresh the open issue (seconds)",
+        "description": "How often the issue you are viewing is re-read from Hilbana, so changes made elsewhere show up without a click. 0 turns it off.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 300,
+        "default": 10
       }
     ],
     "statusBarItems": [

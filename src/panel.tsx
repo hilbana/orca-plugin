@@ -20,6 +20,7 @@ import {
   Row,
   Select,
   set,
+  settings,
   Spinner,
   Switch,
   Textarea,
@@ -192,9 +193,62 @@ const act = (run: () => Promise<IssueDetail>) =>
     const updated = await run()
     set(detail, updated)
     await loadMentions(updated)
-    // The list behind reflects the change without reloading it.
-    set(issues, read(issues).map((row) => (row.id === updated.id ? { ...row, state: updated.state, stateType: updated.stateType, agentWorking: updated.agentWorking } : row)))
+    syncRow(updated)
   })
+
+/** The list behind the open issue reflects its changes without being reloaded. */
+function syncRow(updated: IssueDetail): void {
+  set(issues, read(issues).map((row) => (row.id === updated.id
+    ? { ...row, state: updated.state, stateTone: updated.stateTone, stateType: updated.stateType, agentWorking: updated.agentWorking }
+    : row)))
+}
+
+const POLL_DEFAULT_SECONDS = 10
+
+/** Re-reads the open issue, so what changes on the server shows up here without a click. */
+async function refreshOpenIssue(): Promise<void> {
+  const current = read(detail)
+  if (!current || read(busy)) return
+  const input: { id: string; workspaceId?: string } = { id: current.id }
+  if (read(workspaceId)) input.workspaceId = read(workspaceId)
+  const fresh = await plugin.request('issue.get', input)
+  // The person moved to another issue, or started an action that will bring a fresher copy: drop this one.
+  const now = read(detail)
+  if (!now || now.id !== current.id || read(busy)) return
+  if (JSON.stringify(fresh) === JSON.stringify(now)) return // nothing changed: do not repaint
+  set(detail, fresh)
+  if (fresh.description !== now.description || fresh.comments.length !== now.comments.length) await loadMentions(fresh)
+  syncRow(fresh)
+}
+
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+  })
+
+/** Refreshes the open issue every few seconds while the panel is visible. The comment you are
+ *  typing is a separate value, so it is never touched. */
+async function pollLoop(ctx: PanelContext): Promise<void> {
+  let failures = 0
+  while (!ctx.signal.aborted) {
+    const configured = Number(await Promise.resolve(settings.get('refreshSeconds')).catch(() => POLL_DEFAULT_SECONDS))
+    const seconds = Number.isFinite(configured) ? configured : POLL_DEFAULT_SECONDS
+    // With 0 (off) it still wakes up now and then, in case the setting is turned on later.
+    await sleep((seconds > 0 ? seconds : POLL_DEFAULT_SECONDS) * 1000, ctx.signal)
+    if (ctx.signal.aborted || seconds <= 0 || !read(ctx.visible)) continue
+    try {
+      await refreshOpenIssue()
+    } catch (e) {
+      // A passing hiccup stays silent; a lasting one (say the issue was deleted) is shown once.
+      failures++
+      if (failures === 3) set(error, message(e))
+      continue
+    }
+    if (failures >= 3) set(error, null)
+    failures = 0
+  }
+}
 
 function closeDetail(): void {
   set(error, null)
@@ -282,6 +336,7 @@ export function setup(ctx: PanelContext): void {
     on('agent.status.changed', () => void refreshAgents().catch(() => undefined))
   )
   void refreshAgents().catch(() => undefined) // before the capability is approved this just fails quietly
+  void pollLoop(ctx)
 }
 
 function describe(issue: IssueRow): string {

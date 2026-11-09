@@ -19,6 +19,7 @@ It needs a [Hilbana](https://hilbana.com) account, and there is a free plan: see
 - **Issue detail**: description and comments in Markdown, newest comment first, with the comment box above them.
 - **Act on issues**: change state, claim or release, and comment. Moving an issue to an "in progress" state claims it for your user (the same lock as `claim_issue`).
 - **State colours**: every state is a badge in the Orca tone closest to the colour you set for it in Hilbana. Orca only allows five tones (neutral, accent, success, warning, danger), so the match is approximate, and the accent tone follows your Orca theme.
+- **Live issue**: the issue you have open re-reads itself every 10 seconds (state, comments, who is working on it), so changes made elsewhere show up without a click. It pauses while the panel is hidden, never touches a comment you are typing, and the interval, or turning it off, is a plugin setting. It is a periodic refresh, not a push: Hilbana's live channels need a login session, not an API key.
 - **Jump between issues**: sub-issues, related issues and issues mentioned in the description or comments are listed and clickable, and *Back* retraces your path.
 - **Follow Orca's workspace**: when you switch workspace in Orca, the panel selects the matching Hilbana workspace and project. It looks, in order, at (1) the issue named by the branch (`drapps-2139-some-slug` → `DRAPPS-2139`, which it also opens), (2) the workspace and project you picked by hand for that Orca workspace, which it remembers, and (3) a name match (`acme-shop.com` → the project `acme-shop`). It never guesses between equally good matches. Turn it off with the *Follow the Orca workspace* switch.
 - **Run in agent**: a button in every issue that types a prompt into the agent running in Orca's focused workspace. By default it sends the Hilbana plugin command, `/hilbana:trabajar-issue DRAPPS-123`; change it with the *Prompt sent to the agent* setting (`{identifier}` is replaced by the issue identifier, and other agents can use plain text). If several agents are running you pick the target, and the button stays disabled while the agent is working or waiting for permission, so it never interrupts it.
@@ -62,7 +63,7 @@ Requested capabilities: `settings:own`, `secrets:own`, `storage:own`, `workspace
 
 ## Install
 
-In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250 and a Hilbana API key. The Free plan includes one agent key, and this plugin only needs a key, so you can use the one your agent already uses. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.5.0`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
+In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250 and a Hilbana API key. The Free plan includes one agent key, and this plugin only needs a key, so you can use the one your agent already uses. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.6.0`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 
