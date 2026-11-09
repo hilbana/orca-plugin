@@ -3,6 +3,7 @@ import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import * as main from './worker'
 import { validateKey, validateUrl } from './hilbana'
 import { extractRefs } from './match'
+import { toneFor, toneForType } from './tone'
 import { setLang, t as translate } from './i18n'
 
 const rpc = (payload: unknown) =>
@@ -327,6 +328,120 @@ test('a language remembered by an earlier session is used right at startup', asy
     assert.equal(translate('connect'), 'Conectar')
   } finally {
     setLang('en')
+    await worker.deactivate()
+  }
+})
+
+test('issue.get maps the sub-issues Hilbana returns', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = (async (_u: unknown, init: RequestInit) => {
+    const { params } = JSON.parse(String(init.body))
+    if (params.name === 'list_workspaces') return rpc([{ id: 'w', name: 'W', slug: 'w', role: 'owner', default: true }])
+    if (params.name === 'get_issue') {
+      return rpc({
+        id: 'p1', identifier: 'ACME-1', title: 'Parent', state: 'In Progress', stateType: 'started', project: null, assignee: null, priority: null, agentWorking: null, labels: [],
+        description: 'd', comments: [], relations: [],
+        // The server sends whole issues; only what the panel needs should travel.
+        subIssues: [
+          { id: 'c1', identifier: 'ACME-2', title: 'Child one', state: 'Done', stateType: 'completed', description: 'x'.repeat(50) },
+          { id: 'c2', identifier: 'ACME-3', title: 'Child two', state: 'Todo', stateType: 'unstarted' }
+        ]
+      })
+    }
+    return rpc([])
+  }) as typeof fetch
+  const worker = await mountWorker(main, { host: mockHost({}) })
+  try {
+    await worker.request('auth.save', { key: 'hil_abcdefgh1234' })
+    const issue = await worker.request('issue.get', { id: 'p1' })
+    assert.deepEqual(issue.subIssues, [
+      { id: 'c1', identifier: 'ACME-2', title: 'Child one', state: 'Done', stateTone: 'success' },
+      { id: 'c2', identifier: 'ACME-3', title: 'Child two', state: 'Todo', stateTone: 'neutral' }
+    ])
+    // No sub-issues at all (the field may be missing) is just an empty list.
+    globalThis.fetch = (async (_u: unknown, init: RequestInit) => {
+      const { params } = JSON.parse(String(init.body))
+      return params.name === 'get_issue' ? rpc({ id: 'p2', identifier: 'ACME-9', title: 'Solo', state: null, stateType: null, project: null, assignee: null, priority: null, agentWorking: null, labels: [] }) : rpc([])
+    }) as typeof fetch
+    assert.deepEqual((await worker.request('issue.get', { id: 'p2' })).subIssues, [])
+  } finally {
+    globalThis.fetch = original
+    await worker.deactivate()
+  }
+})
+
+test('a Hilbana colour becomes the nearest Orca tone', () => {
+  // The palette of a real workspace: it must come out distinguishable and sensible.
+  assert.equal(toneFor('#eb5757'), 'danger') // red
+  assert.equal(toneFor('#f2c94c'), 'warning') // yellow
+  assert.equal(toneFor('#4cb782'), 'success') // green
+  assert.equal(toneFor('#6e7781'), 'neutral') // grey
+  assert.equal(toneFor('#26b5ce'), 'accent') // turquoise
+  assert.equal(toneFor('#95a2b3'), 'neutral') // blue-grey
+  assert.equal(toneFor('#f90'), 'warning') // short hex
+  assert.equal(toneFor('#000000'), 'neutral') // black has no hue
+  // No colour, or one we cannot read: the state's category decides.
+  assert.equal(toneFor(null, 'completed'), 'success')
+  assert.equal(toneFor('not a colour', 'canceled'), 'danger')
+  assert.equal(toneFor(undefined, 'started'), 'accent')
+  assert.equal(toneFor('', 'backlog'), 'neutral')
+  assert.equal(toneForType(undefined), 'neutral')
+})
+
+test('rows, sub-issues and mentions carry the tone of their state colour', async () => {
+  const mk = (n: number, stateId: string, state: string, stateType: string) => ({ id: `i${n}`, identifier: `ACME-${n}`, title: `t${n}`, state, stateId, stateType, project: null, assignee: null, priority: null, agentWorking: null, labels: [] })
+  const issues = [mk(1, 's-red', 'Backlog', 'backlog'), mk(2, 's-green', 'In Progress', 'started'), mk(3, 's-none', 'Mystery', 'completed')]
+  let colourCalls = 0
+  const original = globalThis.fetch
+  globalThis.fetch = (async (_u: unknown, init: RequestInit) => {
+    const { params } = JSON.parse(String(init.body))
+    if (params.name === 'list_workspaces') return rpc([{ id: 'w', name: 'W', slug: 'w', role: 'owner', default: true }])
+    if (params.name === 'list_workflow_states') {
+      colourCalls++
+      // "s-none" has no colour at all
+      return rpc([{ id: 's-red', name: 'Backlog', type: 'backlog', color: '#eb5757', teamId: 't' }, { id: 's-green', name: 'In Progress', type: 'started', color: '#4cb782', teamId: 't' }, { id: 's-none', name: 'Mystery', type: 'completed', teamId: 't' }])
+    }
+    if (params.name === 'get_issue') {
+      return rpc({ ...issues[0], description: '', comments: [], subIssues: [issues[1], issues[2]], relations: [{ type: 'blocks', issueId: 'i2', issue: 'ACME-2', title: 't2', state: 'Done', stateType: 'completed' }] })
+    }
+    return rpc(issues)
+  }) as typeof fetch
+  const worker = await mountWorker(main, { host: mockHost({}) })
+  try {
+    await worker.request('auth.save', { key: 'hil_abcdefgh1234' })
+    const page = await worker.request('issues.list', { scope: 'open' })
+    assert.deepEqual(page.rows.map((r) => r.stateTone), ['danger', 'success', 'success'], 'a state with no colour falls back to its category (completed = success)')
+
+    const detail = await worker.request('issue.get', { id: 'i1' })
+    assert.equal(detail.stateTone, 'danger')
+    assert.deepEqual(detail.subIssues.map((s) => s.stateTone), ['success', 'success'])
+    assert.equal(detail.relations[0]?.stateTone, 'success', 'relations only know the category')
+
+    const found = await worker.request('issues.resolve', { identifiers: ['ACME-1'] })
+    assert.equal(found[0]?.stateTone, 'danger')
+    assert.equal(colourCalls, 1, 'the colours are read once and cached, not on every request')
+  } finally {
+    globalThis.fetch = original
+    await worker.deactivate()
+  }
+})
+
+test('the list still works when the colours cannot be read', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = (async (_u: unknown, init: RequestInit) => {
+    const { params } = JSON.parse(String(init.body))
+    if (params.name === 'list_workspaces') return rpc([{ id: 'w', name: 'W', slug: 'w', role: 'owner', default: true }])
+    if (params.name === 'list_workflow_states') return new Response('boom', { status: 500 })
+    return rpc([{ id: 'i1', identifier: 'ACME-1', title: 't', state: 'Done', stateId: 's', stateType: 'completed', project: null, assignee: null, priority: null, agentWorking: null, labels: [] }])
+  }) as typeof fetch
+  const worker = await mountWorker(main, { host: mockHost({}) })
+  try {
+    await worker.request('auth.save', { key: 'hil_abcdefgh1234' })
+    const page = await worker.request('issues.list', { scope: 'open' })
+    assert.equal(page.rows.length, 1)
+    assert.equal(page.rows[0]?.stateTone, 'success', 'falls back to the category')
+  } finally {
+    globalThis.fetch = original
     await worker.deactivate()
   }
 })

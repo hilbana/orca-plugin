@@ -10,6 +10,7 @@ export type Issue = {
   title: string
   state: string | null
   stateType: string | null
+  stateId?: string | null
   project: string | null
   projectId?: string | null
   assignee: string | null

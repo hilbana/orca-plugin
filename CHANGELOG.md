@@ -2,6 +2,11 @@
 
 All notable changes to this plugin. Versions are tagged `vX.Y.Z`; the tag must match `version` in `orca-plugin.json`.
 
+## Unreleased
+
+- **State colours**: states show as badges in the Orca tone nearest to the colour configured in Hilbana (grey, red, yellow, green, and cyan/blue/purple for the accent tone), in the list, the detail, and the sub-issue, related and mentioned lists. A state with no colour falls back to its category. Orca only has five tones, so the match is approximate.
+- Issue detail: a **Sub-issues** section lists the issue's children with their state, and you can jump to any of them (*Back* returns to the parent).
+
 ## 0.5.0 - 2026-11-09
 
 - Spanish and English: the panel follows Orca's UI language (`es`, `es-ES`… are Spanish, anything else English) and tells the worker, so its messages and the status bar tooltip match. The choice is remembered across restarts.

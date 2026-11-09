@@ -4,11 +4,11 @@ import * as panel from './panel'
 import type { IssueDetail, IssueRow } from './protocol'
 
 const row: IssueRow = {
-  id: 'i1', identifier: 'DRAPPS-1', title: 'Hello world', state: 'In Progress', stateType: 'started',
+  id: 'i1', identifier: 'DRAPPS-1', title: 'Hello world', state: 'In Progress', stateTone: 'success', stateType: 'started',
   project: 'P', projectId: 'p1', assignee: null, priority: 'high', agentWorking: null, labels: ['bug']
 }
 const detail = (over: Partial<IssueDetail> = {}): IssueDetail => ({
-  ...row, relations: [], description: 'A **description**', stateId: 's1', teamId: 't1', comments: [], ...over
+  ...row, subIssues: [], relations: [], description: 'A **description**', stateId: 's1', teamId: 't1', comments: [], ...over
 })
 
 test('opens the detail, claims the issue and comments', async () => {
@@ -284,4 +284,112 @@ test('the panel follows Orca\'s language and tells the worker', async () => {
   await en.unmount()
 
   assert.deepEqual(locales, ['es-ES', 'fr-FR'])
+})
+
+test('lists the sub-issues, jumps to one and comes back', async () => {
+  const issues: Record<string, IssueDetail> = {
+    i1: detail({
+      description: 'Parent of two, and it mentions DRAPPS-5.',
+      subIssues: [
+        { id: 'i5', identifier: 'DRAPPS-5', title: 'First child', state: 'Done' },
+        { id: 'i6', identifier: 'DRAPPS-6', title: 'Second child', state: 'Todo' }
+      ]
+    }),
+    i5: { ...detail(), id: 'i5', identifier: 'DRAPPS-5', title: 'First child' }
+  }
+  const host = mockHost({
+    requests: {
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
+      'projects.list': () => [],
+      'states.list': () => [],
+      'issues.list': () => ({ rows: [row], total: 1 }),
+      'issue.get': ({ id }) => issues[id]!,
+      // DRAPPS-5 is both a child and mentioned in the text: it must only be listed once.
+      'issues.resolve': () => [{ id: 'i5', identifier: 'DRAPPS-5', title: 'First child', state: 'Done' }]
+    }
+  })
+  const view = await mount(panel, { host })
+  await view.settled()
+  await view.press({ label: 'DRAPPS-1 Hello world' })
+
+  assert.ok(view.find({ text: /Sub-issues/ }), 'the section is there')
+  assert.ok(view.find({ label: 'DRAPPS-5 First child' }), 'the first child is listed')
+  assert.ok(view.find({ label: 'DRAPPS-6 Second child' }), 'so is the second')
+  assert.equal(view.findAll({ label: 'DRAPPS-5 First child' }).length, 1, 'a child that is also mentioned is not listed twice')
+  assert.equal(view.find({ text: /Mentioned/ }), null, 'and the Mentioned section is not shown for it')
+
+  await view.press({ label: 'DRAPPS-5 First child' })
+  assert.ok(view.find({ text: 'DRAPPS-5' }), 'opened the child')
+  await view.press({ label: 'Back' })
+  assert.ok(view.find({ label: 'DRAPPS-6 Second child' }), 'back returns to the parent')
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('an issue with no sub-issues shows no section', async () => {
+  const host = mockHost({
+    requests: {
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
+      'projects.list': () => [],
+      'states.list': () => [],
+      'issues.list': () => ({ rows: [row], total: 1 }),
+      'issue.get': () => detail()
+    }
+  })
+  const view = await mount(panel, { host })
+  await view.settled()
+  await view.press({ label: 'DRAPPS-1 Hello world' })
+  assert.equal(view.find({ text: /Sub-issues/ }), null)
+  await view.unmount()
+})
+
+test('the Spanish panel calls them Subtareas', async () => {
+  const host = mockHost({
+    requests: {
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
+      'projects.list': () => [],
+      'states.list': () => [],
+      'issues.list': () => ({ rows: [row], total: 1 }),
+      'issue.get': () => detail({ subIssues: [{ id: 'i5', identifier: 'DRAPPS-5', title: 'Hija', state: 'Todo' }] })
+    }
+  })
+  const view = await mount(panel, { host, locale: 'es' })
+  await view.settled()
+  await view.press({ label: 'DRAPPS-1 Hello world' })
+  assert.ok(view.find({ text: /Subtareas/ }))
+  await view.unmount()
+})
+
+test('every state is a badge in the tone of its Hilbana colour, in the list and in the detail', async () => {
+  const red = { ...row, id: 'a', identifier: 'ACME-1', title: 'Red one', state: 'Backlog', stateTone: 'danger' as const }
+  const green = { ...row, id: 'b', identifier: 'ACME-2', title: 'Green one', state: 'In Progress', stateTone: 'success' as const }
+  const host = mockHost({
+    requests: {
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
+      'projects.list': () => [],
+      'states.list': () => [],
+      'issues.list': () => ({ rows: [red, green], total: 2 }),
+      'issue.get': () => detail({
+        ...red,
+        subIssues: [{ id: 'c', identifier: 'ACME-3', title: 'Child', state: 'Done', stateTone: 'accent' }],
+        relations: [{ type: 'blocks', issueId: 'd', identifier: 'ACME-4', title: 'Blocked', state: 'Canceled', stateTone: 'neutral' }]
+      })
+    }
+  })
+  const view = await mount(panel, { host })
+  await view.settled()
+  const tone = (text: string) => view.findAll({ type: 'Badge', text }).map((b) => b.props.tone)
+  assert.deepEqual(tone('Backlog'), ['danger'], 'the list badge uses the state colour')
+  assert.deepEqual(tone('In Progress'), ['success'])
+
+  await view.press({ label: 'ACME-1 Red one' })
+  assert.deepEqual(tone('Backlog'), ['danger'], 'so does the detail header')
+  assert.deepEqual(tone('Done'), ['accent'], 'a sub-issue keeps its own colour')
+  assert.deepEqual(tone('Canceled'), ['neutral'], 'and a related one')
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
 })

@@ -1,11 +1,16 @@
 // The panel <-> worker contract, declared once: src/panel.tsx and src/worker.ts both read it.
 export {}
 
+/** One of Orca's five semantic tones; see tone.ts for how a Hilbana colour becomes one. */
+export type StateTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
+
 export type IssueRow = {
   id: string
   identifier: string
   title: string
   state: string | null
+  /** The tone closest to the colour Hilbana gives this state. */
+  stateTone: StateTone
   stateType: string | null
   project: string | null
   projectId: string | null
@@ -23,9 +28,11 @@ export type Scope =
 export type IssuePage = { rows: IssueRow[]; total: number }
 
 export type Comment = { id: string; author: string | null; body: string; createdAt: string | number }
-export type Relation = { type: string; issueId: string | null; identifier: string; title: string | null; state: string }
-export type IssueRef = { id: string; identifier: string; title: string; state: string | null }
+export type Relation = { type: string; issueId: string | null; identifier: string; title: string | null; state: string; stateTone?: StateTone }
+export type IssueRef = { id: string; identifier: string; title: string; state: string | null; stateTone?: StateTone }
 export type IssueDetail = IssueRow & {
+  /** The issue's children, in the order Hilbana returns them (by number). */
+  subIssues: IssueRef[]
   relations: Relation[]
   description: string
   stateId: string | null
@@ -82,7 +89,7 @@ declare module 'orca' {
     'agents.list': { output: AgentInfo[] }
     /** Types the configured prompt (default: the Hilbana plugin command) into that agent's terminal. */
     'agent.send': { input: { terminalId: string; identifier: string }; output: { sent: string } }
-    'issue.get': { input: { id: string }; output: IssueDetail }
+    'issue.get': { input: { id: string; workspaceId?: string }; output: IssueDetail }
     /** States of one team; without teamId, all the workspace's states with unique names. */
     'states.list': { input: { workspaceId?: string; teamId?: string }; output: WorkflowState[] }
     /** Writes: need an API key with write permissions. They return the updated issue. */

@@ -5,7 +5,7 @@ import { defineCheck } from 'orca/testing'
 import type { IssueDetail, IssueRow } from './protocol'
 
 const row = (n: number, title: string, project: string, projectId: string, state: string, assignee: string | null, agentWorking: string | null = null): IssueRow => ({
-  id: `i-${n}`, identifier: `ACME-${n}`, title, state, stateType: 'started', project, projectId,
+  id: `i-${n}`, identifier: `ACME-${n}`, title, state, stateTone: state === 'In Review' ? 'neutral' : 'success', stateType: 'started', project, projectId,
   assignee, priority: 'medium', agentWorking, labels: []
 })
 
@@ -21,9 +21,13 @@ const rows = [
 const detail: IssueDetail = {
   ...rows[0]!,
   teamId: 't-acme',
+  subIssues: [
+    { id: 'i-143', identifier: 'ACME-143', title: 'Keep the query string in the return URL', state: 'In Progress', stateTone: 'success' },
+    { id: 'i-144', identifier: 'ACME-144', title: 'Add a Safari test to the checkout suite', state: 'Todo', stateTone: 'warning' }
+  ],
   stateId: 's-progress',
   labels: ['bug', 'checkout'],
-  relations: [{ type: 'blocks', issueId: 'i-151', identifier: 'ACME-151', title: 'Rate-limit the public search endpoint', state: 'In Progress' }],
+  relations: [{ type: 'blocks', issueId: 'i-151', identifier: 'ACME-151', title: 'Rate-limit the public search endpoint', state: 'In Progress', stateTone: 'success' }],
   description:
     'Safari drops the `redirect_uri` query string when the payment provider sends the customer back, so the order stays in **pending**.\n\n' +
     '1. Pay with a test card in Safari 17\n2. Wait for the redirect\n3. The order page shows no confirmation\n\nProbably related to ACME-138 and 147.',
@@ -58,8 +62,8 @@ export default defineCheck({
       'workspace.resolve': { key: 'acme-web', workspaceId: null, projectId: 'p-web', source: 'branch' as const, issue: { id: 'i-142', identifier: 'ACME-142' } },
       'issue.get': detail,
       'issues.resolve': [
-        { id: 'i-138', identifier: 'ACME-138', title: 'Add dark mode to the settings page', state: 'In Review' },
-        { id: 'i-147', identifier: 'ACME-147', title: 'Onboarding emails land in spam', state: 'In Progress' }
+        { id: 'i-138', identifier: 'ACME-138', title: 'Add dark mode to the settings page', state: 'In Review', stateTone: 'neutral' },
+        { id: 'i-147', identifier: 'ACME-147', title: 'Onboarding emails land in spam', state: 'In Progress', stateTone: 'success' }
       ]
     },
     events: [{ event: 'workspace.changed', payload: { context: { branch: 'acme-142-checkout-redirect', displayName: 'acme-web', terminals: [] } } }]

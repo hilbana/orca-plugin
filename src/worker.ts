@@ -3,6 +3,7 @@
 // never in the repo, in settings or in storage.
 import type { OrcaWorkerApi } from 'orca/worker'
 import type { AgentInfo, IssueDetail, IssuePage, IssueRef, IssueRow, Relation, WorkflowState } from './protocol'
+import { toneFor, toneForType } from './tone'
 import { getLang, langOf, setLang, stateName, t } from './i18n'
 import { bestProjectByName, exactIdentifier, matchesLocally } from './match'
 import {
@@ -24,11 +25,15 @@ const MAX_ROWS = 1000
 const POLL_MS = 2 * 60_000
 let timer: ReturnType<typeof setInterval> | undefined
 
+/** stateId -> "#rrggbb", filled from Hilbana's workflow states; the panel only gets the resulting tone. */
+const stateColors = new Map<string, string>()
+
 const toRow = (issue: Issue): IssueRow => ({
   id: issue.id,
   identifier: issue.identifier,
   title: issue.title,
   state: issue.state,
+  stateTone: toneFor(stateColors.get(issue.stateId ?? ''), issue.stateType),
   stateType: issue.stateType,
   project: issue.project,
   projectId: issue.projectId ?? null,
@@ -124,7 +129,24 @@ export default function activate(orca: OrcaWorkerApi): void {
     }))
   )
 
+  // Hilbana's state colours, refreshed every few minutes per workspace. If they cannot be read,
+  // the tone just falls back to the state's category.
+  const COLORS_TTL = 5 * 60_000
+  const colorsFetched = new Map<string, number>()
+  async function ensureColors(workspaceId?: string, signal?: AbortSignal): Promise<void> {
+    const key = workspaceId ?? ''
+    if (Date.now() - (colorsFetched.get(key) ?? 0) < COLORS_TTL) return
+    colorsFetched.set(key, Date.now())
+    try {
+      const states = await call<{ id: string; color?: string | null }[]>('list_workflow_states', withWs(workspaceId), signal)
+      for (const state of states) if (state.color) stateColors.set(state.id, state.color)
+    } catch {
+      colorsFetched.delete(key)
+    }
+  }
+
   orca.panels.handle('issues.list', async ({ workspaceId, projectId, scope, query }, { signal }): Promise<IssuePage> => {
+    await ensureColors(workspaceId, signal)
     if (query?.trim()) return searchIssues(query.trim(), workspaceId, projectId, signal)
     const args: Record<string, unknown> = { ...withWs(workspaceId) }
     if (projectId) args.projectId = projectId
@@ -154,6 +176,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   /** Like the web app: local match (id/title) ∪ server full-text, across all states. */
   async function searchIssues(query: string, workspaceId?: string, projectId?: string, signal?: AbortSignal): Promise<IssuePage> {
+    await ensureColors(workspaceId, signal)
     const [index, server] = await Promise.all([
       issueIndex(workspaceId, signal).catch(() => [] as Issue[]),
       // If the full-text search fails, the local match still works.
@@ -178,7 +201,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     description?: string | null
     stateId?: string | null
     teamId?: string | null
-    relations?: { type: string; issueId: string | null; issue: string; title: string | null; state: string }[]
+    subIssues?: Issue[]
+    relations?: { type: string; issueId: string | null; issue: string; title: string | null; state: string; stateType?: string }[]
     comments?: { id: string; author: string | null; body: string; createdAt: string | number }[]
   }
   const toDetail = (i: Full): IssueDetail => ({
@@ -186,11 +210,14 @@ export default function activate(orca: OrcaWorkerApi): void {
     description: i.description ?? '',
     stateId: i.stateId ?? null,
     teamId: i.teamId ?? null,
-    relations: (i.relations ?? []).map((r): Relation => ({ type: r.type, issueId: r.issueId, identifier: r.issue, title: r.title, state: r.state })),
+    subIssues: (i.subIssues ?? []).map((child) => ({ id: child.id, identifier: child.identifier, title: child.title, state: child.state, stateTone: toneFor(stateColors.get(child.stateId ?? ''), child.stateType) })),
+    relations: (i.relations ?? []).map((r): Relation => ({ type: r.type, issueId: r.issueId, identifier: r.issue, title: r.title, state: r.state, stateTone: toneForType(r.stateType) })),
     comments: (i.comments ?? []).map(({ id, author, body, createdAt }) => ({ id, author, body, createdAt }))
   })
-  const getDetail = async (id: string, signal?: AbortSignal) =>
-    toDetail(await call<Full>('get_issue', { id }, signal))
+  const getDetail = async (id: string, signal?: AbortSignal, workspaceId?: string) => {
+    await ensureColors(workspaceId, signal)
+    return toDetail(await call<Full>('get_issue', { id }, signal))
+  }
 
   /** A read-only key has no write tools registered: say so clearly. */
   async function write(name: string, args: Record<string, unknown>): Promise<void> {
@@ -270,9 +297,10 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('issues.resolve', async ({ identifiers, workspaceId }, { signal }): Promise<IssueRef[]> => {
     const wanted = new Set(identifiers.slice(0, 200).map((id) => id.toUpperCase()))
     if (wanted.size === 0) return []
+    await ensureColors(workspaceId, signal)
     return (await issueIndex(workspaceId, signal))
       .filter((issue) => wanted.has(issue.identifier))
-      .map(({ id, identifier, title, state }) => ({ id, identifier, title, state }))
+      .map((issue) => ({ id: issue.id, identifier: issue.identifier, title: issue.title, state: issue.state, stateTone: toneFor(stateColors.get(issue.stateId ?? ''), issue.stateType) }))
   })
 
   const listAgents = async (): Promise<AgentInfo[]> =>
@@ -301,7 +329,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     return { sent: text }
   })
 
-  orca.panels.handle('issue.get', ({ id }, { signal }) => getDetail(id, signal))
+  orca.panels.handle('issue.get', ({ id, workspaceId }, { signal }) => getDetail(id, signal, workspaceId))
 
   orca.panels.handle('states.list', async ({ workspaceId, teamId }, { signal }) => {
     const all = await call<(WorkflowState & { teamId: string })[]>('list_workflow_states', withWs(workspaceId), signal)

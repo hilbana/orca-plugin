@@ -29,7 +29,7 @@ import {
 } from 'orca'
 import { langOf, setLang, stateName, t } from './i18n'
 import { extractRefs } from './match'
-import type { AgentInfo, IssueDetail, IssueRef, IssueRow, Scope, WorkflowState } from './protocol'
+import type { AgentInfo, IssueDetail, IssueRef, IssueRow, Scope, StateTone, WorkflowState } from './protocol'
 
 const connected = atom<boolean | null>(null)
 const keyDraft = atom('')
@@ -171,7 +171,9 @@ function goTo(id: string): void {
 
 async function openIssue(id: string): Promise<void> {
   await guard(async () => {
-    const issue = await plugin.request('issue.get', { id })
+    const input: { id: string; workspaceId?: string } = { id }
+    if (read(workspaceId)) input.workspaceId = read(workspaceId)
+    const issue = await plugin.request('issue.get', input)
     set(detail, issue)
     set(commentDraft, '')
     set(states, [])
@@ -283,7 +285,7 @@ export function setup(ctx: PanelContext): void {
 }
 
 function describe(issue: IssueRow): string {
-  return [issue.state, issue.project, issue.assignee, issue.agentWorking ? `🤖 ${issue.agentWorking}` : null]
+  return [issue.project, issue.assignee, issue.agentWorking ? `🤖 ${issue.agentWorking}` : null]
     .filter(Boolean)
     .join(' · ')
 }
@@ -431,7 +433,9 @@ function Board() {
               title={`${issue.identifier} ${issue.title}`}
               description={describe(issue)}
               onPress={() => void openIssue(issue.id)}
-            />
+            >
+              {issue.state ? <Badge tone={issue.stateTone}>{issue.state}</Badge> : null}
+            </ListItem>
           ))}
         </List>
       )}
@@ -443,14 +447,16 @@ const relationLabel = (type: string) =>
   type === 'blocks' ? t('relBlocks') : type === 'blocked_by' ? t('relBlockedBy') : type === 'relates' ? t('relRelates') : type
 
 /** Issues you can jump to; renders nothing when empty. */
-function RefList({ title, items }: { title: string; items: { id: string; label: string; state: string }[] }) {
+function RefList({ title, items }: { title: string; items: { id: string; label: string; state: string; tone?: StateTone }[] }) {
   if (items.length === 0) return null
   return (
     <Stack gap="xs">
       <Heading level={3}>{title} ({items.length})</Heading>
       <List label={title}>
         {items.map((item) => (
-          <ListItem key={item.id} icon="link" title={item.label} description={item.state} onPress={() => goTo(item.id)} />
+          <ListItem key={item.id} icon="link" title={item.label} onPress={() => goTo(item.id)}>
+            {item.state ? <Badge tone={item.tone ?? 'neutral'}>{item.state}</Badge> : null}
+          </ListItem>
         ))}
       </List>
     </Stack>
@@ -512,7 +518,7 @@ function Detail({ issue }: { issue: IssueDetail }) {
       </Row>
       <Text weight="semibold">{issue.title}</Text>
       <Row gap="xs" wrap>
-        {issue.state ? <Badge tone="accent">{issue.state}</Badge> : null}
+        {issue.state ? <Badge tone={issue.stateTone}>{issue.state}</Badge> : null}
         {issue.project ? <Badge>{issue.project}</Badge> : null}
         {issue.assignee ? <Badge>{issue.assignee}</Badge> : null}
         {issue.labels.map((label) => <Badge key={label}>{label}</Badge>)}
@@ -541,12 +547,13 @@ function Detail({ issue }: { issue: IssueDetail }) {
       <Heading level={3}>{t('description')}</Heading>
       {issue.description.trim() ? <Markdown content={issue.description} /> : <Text muted size="sm">{t('noDescription')}</Text>}
 
-      <RefList title={t('related')} items={issue.relations.filter((r) => r.issueId).map((r) => ({ id: r.issueId!, label: `${relationLabel(r.type)} · ${r.identifier}${r.title ? ' ' + r.title : ''}`, state: r.state }))} />
+      <RefList title={t('subIssues')} items={issue.subIssues.map((child) => ({ id: child.id, label: `${child.identifier} ${child.title}`, state: child.state ?? '', tone: child.stateTone }))} />
+      <RefList title={t('related')} items={issue.relations.filter((r) => r.issueId).map((r) => ({ id: r.issueId!, label: `${relationLabel(r.type)} · ${r.identifier}${r.title ? ' ' + r.title : ''}`, state: r.state, tone: r.stateTone }))} />
       <RefList
         title={t('mentioned')}
         items={read(mentions)
-          .filter((m) => !issue.relations.some((r) => r.issueId === m.id))
-          .map((m) => ({ id: m.id, label: `${m.identifier} ${m.title}`, state: m.state ?? '' }))}
+          .filter((m) => !issue.relations.some((r) => r.issueId === m.id) && !issue.subIssues.some((child) => child.id === m.id))
+          .map((m) => ({ id: m.id, label: `${m.identifier} ${m.title}`, state: m.state ?? '', tone: m.stateTone }))}
       />
 
       <Heading level={3}>{t('comments')} ({issue.comments.length})</Heading>
