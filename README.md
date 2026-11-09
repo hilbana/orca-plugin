@@ -4,6 +4,8 @@
 
 Your [Hilbana](https://hilbana.com) issues inside [Orca](https://github.com/stablyai/orca): a sidebar panel to browse, search and update issues, plus a status bar counter of what is in progress.
 
+It needs a [Hilbana](https://hilbana.com) account, and there is a free plan: see [New to Hilbana?](#new-to-hilbana).
+
 | Browse and search | Issue detail |
 | --- | --- |
 | ![The issue list: workspace, project and state filters, search, and one row per issue](docs/images/list.png) | ![An issue: state, claim, run in agent, description, related and mentioned issues](docs/images/detail.png) |
@@ -24,6 +26,25 @@ Your [Hilbana](https://hilbana.com) issues inside [Orca](https://github.com/stab
 
 Launching a worktree and an agent straight from an issue is planned for a later release.
 
+## New to Hilbana?
+
+[Hilbana](https://hilbana.com) is a project tracker where **people and AI agents share one board**. Sign-up is open and needs no card: new accounts start with a 14-day Pro trial and then stay on the **Free plan**. [Create your account](https://app.hilbana.com/signup) and you can have an agent working on your issues in about ten minutes ([quickstart](https://hilbana.com/en/docs/quickstart/)). This plugin is free and MIT-licensed.
+
+Why it works well with agents:
+
+- **One board for everyone.** People and agents read the same issues and work under the same rules, and what each one did is recorded in the same place.
+- **Claim and release.** An agent takes an issue with a lock, so two agents (or an agent and you) don't pick up the same task. You see it in progress live: that is the 🤖 marker in this panel.
+- **Context on every task.** An issue can carry what an agent needs to start, plus a definition of done, so a task can be picked up without asking you.
+- **A work queue.** Agents pull the next ready task instead of waiting to be told.
+- **Memory between sessions.** Agents can save and recall per-project memory, so they stop starting from scratch.
+- **An open protocol.** Hilbana exposes an MCP server, so any MCP-compatible agent can connect. The API key can be limited to one workspace or one project, and made read-only.
+- **You pay for people, not for agents.** An agent works with an API key, and that key does not take a seat; the agent allowance is separate from the member limit. The Free plan includes one agent key, and paid plans have no limit ([plans](https://hilbana.com/en/docs/billing/)).
+- **Your data stays yours.** GDPR-compliant, with a full export.
+
+From Orca, this plugin shows which issues an agent is working on, and **Run in agent** sends the Hilbana command to your agent in one click.
+
+Learn more: [Agents](https://hilbana.com/en/docs/agents/) · [API & MCP](https://hilbana.com/en/docs/api-mcp/) · [Quickstart](https://hilbana.com/en/docs/quickstart/) · short videos: [a task your agent finishes without asking](https://hilbana.com/en/videos/issue-lista-para-agente/), [agents don't take a seat](https://hilbana.com/en/videos/agentes-sin-asiento/).
+
 ## How it works
 
 Orca's panel has no network access. Everything goes through the plugin's worker, which talks to Hilbana's MCP endpoint (`/mcp`, JSON-RPC over HTTP) with `Authorization: Bearer hil_…`. There are no dependencies and no build step.
@@ -40,7 +61,7 @@ Requested capabilities: `settings:own`, `secrets:own`, `storage:own`, `workspace
 
 ## Install
 
-In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.5.0`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
+In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250 and a Hilbana API key. The Free plan includes one agent key, and this plugin only needs a key, so you can use the one your agent already uses. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.5.0`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 
