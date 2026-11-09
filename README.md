@@ -4,6 +4,12 @@
 
 Your [Hilbana](https://hilbana.com) issues inside [Orca](https://github.com/stablyai/orca): a sidebar panel to browse, search and update issues, plus a status bar counter of what is in progress.
 
+| Browse and search | Issue detail |
+| --- | --- |
+| ![The issue list: workspace, project and state filters, search, and one row per issue](docs/images/list.png) | ![An issue: state, claim, run in agent, description, related and mentioned issues](docs/images/detail.png) |
+
+*Screenshots use invented data.*
+
 ## Features
 
 - **Browse** issues by workspace, project and state: in progress, not started, all open, all (including closed), any category, or one specific state.
