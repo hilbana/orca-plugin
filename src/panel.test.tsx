@@ -16,7 +16,7 @@ test('opens the detail, claims the issue and comments', async () => {
   const sent: string[] = []
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'issues.list': () => ({ rows: [row], total: 1 }),
@@ -49,16 +49,16 @@ test('when the Orca workspace changes it selects the project, opens the branch i
   const linked: { key: string; projectId: string | null }[] = []
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [{ id: 'p0', name: 'Other' }, { id: 'p1', name: 'P' }],
       'states.list': () => [],
       'issues.list': ({ projectId }) => ({ rows: projectId === 'p1' ? [row] : [], total: projectId === 'p1' ? 1 : 0 }),
       'workspace.resolve': ({ displayName, branch }) => {
         resolved.push(`${displayName}@${branch}`)
-        if (branch.startsWith('drapps-1-')) return { key: displayName, workspaceId: null, projectId: 'p1', source: 'branch', issue: { id: 'i1', identifier: 'DRAPPS-1' } }
-        if (displayName === 'p.com') return { key: displayName, workspaceId: null, projectId: 'p1', source: 'name', issue: null }
-        return { key: displayName, workspaceId: null, projectId: null, source: null, issue: null }
+        if (branch.startsWith('drapps-1-')) return { key: displayName, accountId: null, workspaceId: null, projectId: 'p1', source: 'branch', issue: { id: 'i1', identifier: 'DRAPPS-1' } }
+        if (displayName === 'p.com') return { key: displayName, accountId: null, workspaceId: null, projectId: 'p1', source: 'name', issue: null }
+        return { key: displayName, accountId: null, workspaceId: null, projectId: null, source: null, issue: null }
       },
       'workspace.link': (input) => { linked.push(input); return { ok: true } },
       'issue.get': () => detail()
@@ -81,7 +81,7 @@ test('when the Orca workspace changes it selects the project, opens the branch i
 
   // Picking a project by hand in a workspace remembers it for that workspace.
   await view.select({ label: 'Project' }, 'p0')
-  assert.deepEqual(linked, [{ key: 'p.com', projectId: 'p0', workspaceId: 'w' }])
+  assert.deepEqual(linked, [{ key: 'p.com', projectId: 'p0', workspaceId: 'w', accountId: null }])
 
   // An issue branch opens the issue.
   await view.emit('workspace.changed', { context: { branch: 'drapps-1-hola-mundo', displayName: 'x', terminals: [] } })
@@ -95,7 +95,7 @@ test('when the Orca workspace changes it selects the project, opens the branch i
 test('comments show newest first, with the form above them', async () => {
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],
@@ -127,7 +127,7 @@ test('travels to mentioned and related issues, and returns the same way', async 
   }
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],
@@ -161,7 +161,7 @@ test('the Run in agent button targets an idle agent and is disabled while it wor
   const sent: { terminalId: string; identifier: string }[] = []
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],
@@ -195,7 +195,7 @@ test('the Run in agent button targets an idle agent and is disabled while it wor
 test('without an agent the button is still visible, disabled, with the reason', async () => {
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],
@@ -218,7 +218,7 @@ test('remembers the Hilbana workspace per Orca workspace, and switches to it whe
   const linked: { key: string; projectId: string | null; workspaceId?: string | null }[] = []
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w1', name: 'First', default: true }, { id: 'w2', name: 'Second', default: false }],
       'projects.list': ({ workspaceId }) => {
         projectsCalls.push(workspaceId)
@@ -228,8 +228,8 @@ test('remembers the Hilbana workspace per Orca workspace, and switches to it whe
       'issues.list': (input) => { issuesCalls.push({ workspaceId: input.workspaceId, projectId: input.projectId }); return { rows: [], total: 0 } },
       'workspace.resolve': ({ displayName }) =>
         displayName === 'linked.com'
-          ? { key: 'linked.com', workspaceId: 'w2', projectId: 'q1', source: 'link', issue: null }
-          : { key: displayName, workspaceId: null, projectId: null, source: null, issue: null },
+          ? { key: 'linked.com', accountId: null, workspaceId: 'w2', projectId: 'q1', source: 'link', issue: null }
+          : { key: displayName, accountId: null, workspaceId: null, projectId: null, source: null, issue: null },
       'workspace.link': (input) => { linked.push(input); return { ok: true } }
     }
   })
@@ -245,7 +245,7 @@ test('remembers the Hilbana workspace per Orca workspace, and switches to it whe
   // Switching the Hilbana workspace by hand is remembered for the Orca workspace.
   await view.select({ label: 'Workspace' }, 'w1')
   await view.settled()
-  assert.deepEqual(linked.at(-1), { key: 'linked.com', projectId: null, workspaceId: 'w1' })
+  assert.deepEqual(linked.at(-1), { key: 'linked.com', projectId: null, workspaceId: 'w1', accountId: null })
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
@@ -253,7 +253,7 @@ test('remembers the Hilbana workspace per Orca workspace, and switches to it whe
 test('the panel follows Orca\'s language and tells the worker', async () => {
   const locales: string[] = []
   const requests = {
-    'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+    'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
     'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
     'projects.list': () => [],
     'states.list': () => [],
@@ -299,7 +299,7 @@ test('lists the sub-issues, jumps to one and comes back', async () => {
   }
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],
@@ -330,7 +330,7 @@ test('lists the sub-issues, jumps to one and comes back', async () => {
 test('an issue with no sub-issues shows no section', async () => {
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],
@@ -348,7 +348,7 @@ test('an issue with no sub-issues shows no section', async () => {
 test('the Spanish panel calls them Subtareas', async () => {
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],
@@ -368,7 +368,7 @@ test('every state is a badge in the tone of its Hilbana colour, in the list and 
   const green = { ...row, id: 'b', identifier: 'ACME-2', title: 'Green one', state: 'In Progress', stateTone: 'success' as const }
   const host = mockHost({
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],
@@ -399,7 +399,7 @@ async function openWith(server: { current: IssueDetail; reads: number }, setting
   const host = mockHost({
     settings: { refreshSeconds: settingsValue },
     requests: {
-      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring' }),
+      'auth.status': () => ({ connected: true, url: 'https://x/mcp', protection: 'os-keyring', accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' }),
       'workspaces.list': () => [{ id: 'w', name: 'WS', default: true }],
       'projects.list': () => [],
       'states.list': () => [],

@@ -2,7 +2,7 @@
 // lives in a frame with no network access. The API key lives in Orca's keyring (secrets:own),
 // never in the repo, in settings or in storage.
 import type { OrcaWorkerApi } from 'orca/worker'
-import type { AgentInfo, IssueDetail, IssuePage, IssueRef, IssueRow, Relation, WorkflowState } from './protocol'
+import type { Account, AgentInfo, IssueDetail, IssuePage, IssueRef, IssueRow, Relation, WorkflowState } from './protocol'
 import { toneFor, toneForType } from './tone'
 import { getLang, langOf, setLang, stateName, t } from './i18n'
 import { bestProjectByName, exactIdentifier, matchesLocally } from './match'
@@ -16,7 +16,13 @@ import {
   type Workspace
 } from './hilbana'
 
-const KEY = 'apiKey'
+// One keyring entry per account. Before accounts existed the plugin kept a single key under
+// 'apiKey': it is adopted as the account 'default' without moving the secret.
+const LEGACY_SECRET = 'apiKey'
+const LEGACY_ID = 'default'
+const ACCOUNTS = 'accounts'
+const ACTIVE = 'activeAccount'
+const secretOf = (id: string): string => (id === LEGACY_ID ? LEGACY_SECRET : `apiKey-${id}`)
 /** `{identifier}` is replaced by the issue identifier (DRAPPS-123). Editable in the plugin settings. */
 const DEFAULT_PROMPT = '/hilbana:trabajar-issue {identifier}'
 const IDENTIFIER = /^[A-Za-z][A-Za-z0-9]*-\d+$/
@@ -48,30 +54,57 @@ export default function activate(orca: OrcaWorkerApi): void {
     const value = (await orca.settings.get('serverUrl')) as unknown
     return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_URL
   }
-  const apiKey = async (): Promise<string> => {
-    const key = await orca.secrets.get(KEY)
+
+  const readAccounts = async (): Promise<Account[]> => {
+    const value = (await orca.storage.get(ACCOUNTS)) as unknown
+    if (Array.isArray(value)) {
+      return value.filter((a): a is Account => Boolean(a) && typeof a.id === 'string' && typeof a.name === 'string')
+    }
+    // Never saved a list: a key from an earlier version becomes the first account.
+    const legacy = await orca.secrets.get(LEGACY_SECRET)
+    if (!legacy) return []
+    const named = await callTool<Workspace[]>(await serverUrl(), legacy, 'list_workspaces', {}, AbortSignal.timeout(4000))
+      .then((list) => list.find((w) => w.default)?.name ?? list[0]?.name)
+      .catch(() => undefined)
+    const migrated = [{ id: LEGACY_ID, name: named ?? 'Hilbana' }]
+    await orca.storage.set(ACCOUNTS, migrated)
+    return migrated
+  }
+  /** The account every request talks to unless it names another; null when none is connected. */
+  const activeId = async (accounts?: Account[]): Promise<string | null> => {
+    const list = accounts ?? (await readAccounts())
+    const stored = (await orca.storage.get(ACTIVE)) as unknown
+    return list.find((a) => a.id === stored)?.id ?? list[0]?.id ?? null
+  }
+  const apiKey = async (accountId?: string): Promise<string> => {
+    const id = accountId ?? (await activeId())
+    const key = id ? await orca.secrets.get(secretOf(id)) : null
     if (!key) throw new Error(t('errKeyMissing'))
     return key
   }
-  const call = async <T>(name: string, args: Record<string, unknown> = {}, signal?: AbortSignal) =>
-    callTool<T>(await serverUrl(), await apiKey(), name, args, signal)
+  const call = async <T>(name: string, args: Record<string, unknown> = {}, signal?: AbortSignal, accountId?: string) =>
+    callTool<T>(await serverUrl(), await apiKey(accountId), name, args, signal)
 
   const withWs = (workspaceId?: string) => (workspaceId ? { workspaceId } : {})
 
   async function refreshStatusBar(): Promise<void> {
     try {
-      if (!(await orca.secrets.get(KEY))) {
+      const accounts = await readAccounts()
+      if (accounts.length === 0) {
         await orca.host.call('statusBar.update', {
           id: 'queue', text: 'Hilbana —', tone: 'neutral', tooltip: t('statusConnect')
         })
         return
       }
       const started = await call<Issue[]>('list_issues', { stateCategory: 'started' })
+      const activeAccount = await activeId(accounts)
+      const active = accounts.find((a) => a.id === activeAccount)
+      const count = t('statusCount', { n: started.length })
       await orca.host.call('statusBar.update', {
         id: 'queue',
         text: `Hilbana ${started.length}`,
         tone: 'neutral',
-        tooltip: t('statusCount', { n: started.length })
+        tooltip: accounts.length > 1 && active ? `${active.name}: ${count}` : count
       })
     } catch (error) {
       await orca.host
@@ -93,26 +126,60 @@ export default function activate(orca: OrcaWorkerApi): void {
     return { ok: true as const }
   })
 
-  orca.panels.handle('auth.status', async () => ({
-    connected: Boolean(await orca.secrets.get(KEY)),
-    url: await serverUrl(),
-    protection: (await orca.host.call('secrets.protection')).status
-  }))
+  orca.panels.handle('auth.status', async () => {
+    const accounts = await readAccounts()
+    return {
+      connected: accounts.length > 0,
+      url: await serverUrl(),
+      protection: (await orca.host.call('secrets.protection')).status,
+      accounts,
+      activeId: await activeId(accounts)
+    }
+  })
 
-  orca.panels.handle('auth.save', async ({ key }) => {
+  orca.panels.handle('auth.save', async ({ key, name }) => {
     const clean = validateKey(key)
     validateUrl(await serverUrl())
     // Validated BEFORE saving: a bad key never reaches the keyring.
     const workspaces = await callTool<Workspace[]>(await serverUrl(), clean, 'list_workspaces')
-    await orca.secrets.set(KEY, clean)
+    const accounts = await readAccounts()
+    const typed = (name ?? '').trim()
+    const base = typed || workspaces.find((w) => w.default)?.name || workspaces[0]?.name || 'Hilbana'
+    const sameName = (a: Account, wanted: string) => a.name.toLowerCase() === wanted.toLowerCase()
+    // A name you typed that already exists means "replace that account's key". A name the plugin
+    // derived never overwrites anything: it gets a number instead.
+    const replaced = typed ? accounts.find((a) => sameName(a, typed)) : undefined
+    let chosen = base
+    for (let n = 2; !replaced && accounts.some((a) => sameName(a, chosen)); n++) chosen = `${base} ${n}`
+    const id = replaced?.id ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    await orca.secrets.set(secretOf(id), clean) // first: if the keyring refuses, no account is left half-made
+    await orca.storage.set(ACCOUNTS, replaced ? accounts : [...accounts, { id, name: chosen }])
+    await orca.storage.set(ACTIVE, id)
+    indexes.clear()
+    colorsFetched.clear()
     orca.panels.post('auth.changed', { connected: true })
     void refreshStatusBar()
-    return { workspaces: workspaces.length }
+    return { workspaces: workspaces.length, accountId: id }
   })
 
-  orca.panels.handle('auth.clear', async () => {
-    await orca.secrets.delete(KEY)
-    orca.panels.post('auth.changed', { connected: false })
+  orca.panels.handle('auth.clear', async ({ accountId }) => {
+    const accounts = await readAccounts()
+    const id = accountId ?? (await activeId(accounts))
+    const left = accounts.filter((a) => a.id !== id)
+    if (id) await orca.secrets.delete(secretOf(id))
+    await orca.storage.set(ACCOUNTS, left)
+    const next = await activeId(left)
+    await orca.storage.set(ACTIVE, next ?? '')
+    indexes.clear()
+    colorsFetched.clear()
+    orca.panels.post('auth.changed', { connected: left.length > 0 })
+    void refreshStatusBar()
+    return { ok: true as const, activeId: next }
+  })
+
+  orca.panels.handle('account.select', async ({ accountId }) => {
+    if (!(await readAccounts()).some((a) => a.id === accountId)) throw new Error(t('errAccountUnknown'))
+    await orca.storage.set(ACTIVE, accountId)
     void refreshStatusBar()
     return { ok: true as const }
   })
@@ -134,7 +201,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   const COLORS_TTL = 5 * 60_000
   const colorsFetched = new Map<string, number>()
   async function ensureColors(workspaceId?: string, signal?: AbortSignal): Promise<void> {
-    const key = workspaceId ?? ''
+    const key = `${(await activeId()) ?? ''}|${workspaceId ?? ''}`
     if (Date.now() - (colorsFetched.get(key) ?? 0) < COLORS_TTL) return
     colorsFetched.set(key, Date.now())
     try {
@@ -165,11 +232,12 @@ export default function activate(orca: OrcaWorkerApi): void {
   // identifier/title without going through the bridge's 1 MiB limit.
   const INDEX_TTL = 2 * 60_000
   const indexes = new Map<string, { at: number; issues: Issue[] }>()
-  async function issueIndex(workspaceId: string | undefined, signal?: AbortSignal): Promise<Issue[]> {
-    const key = workspaceId ?? ''
+  async function issueIndex(workspaceId: string | undefined, signal?: AbortSignal, accountId?: string): Promise<Issue[]> {
+    const account = accountId ?? (await activeId()) ?? undefined
+    const key = `${account ?? ''}|${workspaceId ?? ''}`
     const hit = indexes.get(key)
     if (hit && Date.now() - hit.at < INDEX_TTL) return hit.issues
-    const issues = await call<Issue[]>('list_issues', { includeClosed: true, ...withWs(workspaceId) }, signal)
+    const issues = await call<Issue[]>('list_issues', { includeClosed: true, ...withWs(workspaceId) }, signal, account)
     indexes.set(key, { at: Date.now(), issues })
     return issues
   }
@@ -234,7 +302,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
 
   const LINKS = 'workspaceLinks'
-  type Link = { projectId?: string; workspaceId?: string }
+  type Link = { projectId?: string; workspaceId?: string; accountId?: string }
   const readLinks = async (): Promise<Record<string, Link>> => {
     const value = (await orca.storage.get(LINKS)) as unknown
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -255,22 +323,29 @@ export default function activate(orca: OrcaWorkerApi): void {
     const orcaProject = (entry as { project?: string | null } | null)?.project
     const key = (orcaProject || displayName).trim()
 
-    // A remembered Hilbana workspace scopes every lookup below; otherwise the panel's current one does.
-    const link = (await readLinks())[key]
+    // A remembered account and Hilbana workspace scope every lookup below; otherwise the panel's current ones do.
+    // A link to an account that was removed is ignored whole: its workspace and project are that account's.
+    const accounts = await readAccounts()
+    const saved = (await readLinks())[key]
+    const link = saved && (!saved.accountId || accounts.some((a) => a.id === saved.accountId)) ? saved : undefined
+    const active = await activeId(accounts)
+    const linkedAccount = link?.accountId || null
+    // Another account's lookups run with its key; the panel's current workspace belongs to the active one.
+    const otherAccount = linkedAccount && linkedAccount !== active ? linkedAccount : undefined
     const linkedWorkspace = link?.workspaceId || null
-    const scopeWorkspace = linkedWorkspace ?? workspaceId
+    const scopeWorkspace = linkedWorkspace ?? (otherAccount ? undefined : workspaceId)
     const answer = (projectId: string | null, source: 'branch' | 'link' | 'name' | null, issue: { id: string; identifier: string } | null) =>
-      ({ key, workspaceId: linkedWorkspace, projectId, source, issue })
+      ({ key, accountId: linkedAccount, workspaceId: linkedWorkspace, projectId, source, issue })
 
     // 1) Branch convention `<team>-<n>-<slug>` (e.g. drapps-2139-search): the issue's own project.
     const match = /^([a-z][a-z0-9]*)-(\d+)(?:-|$)/i.exec(branch.trim().replace(/^[^/]*\//, '').trim())
     if (match) {
       const identifier = `${match[1]!.toUpperCase()}-${Number(match[2])}`
-      const issue = (await issueIndex(scopeWorkspace, signal)).find((candidate) => candidate.identifier === identifier)
+      const issue = (await issueIndex(scopeWorkspace, signal, otherAccount)).find((candidate) => candidate.identifier === identifier)
       if (issue) return answer(issue.projectId ?? null, 'branch', { id: issue.id, identifier })
     }
 
-    const projects = await call<Project[]>('list_projects', withWs(scopeWorkspace), signal)
+    const projects = await call<Project[]>('list_projects', withWs(scopeWorkspace), signal, otherAccount)
     const exists = (id: string | undefined) => (id && projects.some((project) => project.id === id) ? id : null)
 
     // 2) A link learned from you (a link to a deleted project is ignored).
@@ -283,10 +358,14 @@ export default function activate(orca: OrcaWorkerApi): void {
     return named ? answer(named, 'name', null) : answer(null, linkedWorkspace ? 'link' : null, null)
   })
 
-  orca.panels.handle('workspace.link', async ({ key, projectId, workspaceId }) => {
+  orca.panels.handle('workspace.link', async ({ key, projectId, workspaceId, accountId }) => {
     const links = await readLinks()
-    if (projectId || workspaceId) {
-      links[key] = { ...(projectId ? { projectId } : {}), ...(workspaceId ? { workspaceId } : {}) }
+    if (projectId || workspaceId || accountId) {
+      links[key] = {
+        ...(projectId ? { projectId } : {}),
+        ...(workspaceId ? { workspaceId } : {}),
+        ...(accountId ? { accountId } : {})
+      }
     } else {
       delete links[key]
     }

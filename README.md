@@ -22,6 +22,7 @@ It needs a [Hilbana](https://hilbana.com) account, and there is a free plan: see
 - **Live issue**: the issue you have open re-reads itself every 10 seconds (state, comments, who is working on it), so changes made elsewhere show up without a click. It pauses while the panel is hidden, never touches a comment you are typing, and the interval, or turning it off, is a plugin setting. It is a periodic refresh, not a push: Hilbana's live channels need a login session, not an API key.
 - **Jump between issues**: sub-issues, related issues and issues mentioned in the description or comments are listed and clickable, and *Back* retraces your path.
 - **Follow Orca's workspace**: when you switch workspace in Orca, the panel selects the matching Hilbana workspace and project. It looks, in order, at (1) the issue named by the branch (`drapps-2139-some-slug` → `DRAPPS-2139`, which it also opens), (2) the workspace and project you picked by hand for that Orca workspace, which it remembers, and (3) a name match (`acme-shop.com` → the project `acme-shop`). It never guesses between equally good matches. Turn it off with the *Follow the Orca workspace* switch.
+- **Several accounts**: add more than one API key (your company's Hilbana user and your personal one, say) with the **+** button, and pick the active account from the selector that appears. An Orca workspace remembers the account, Hilbana workspace and project you chose for it, so switching Orca workspace switches account too. A key already reaches every workspace of its Hilbana user, so you only need a second account when it is a different user.
 - **Run in agent**: a button in every issue that types a prompt into the agent running in Orca's focused workspace. By default it sends the Hilbana plugin command, `/hilbana:trabajar-issue DRAPPS-123`; change it with the *Prompt sent to the agent* setting (`{identifier}` is replaced by the issue identifier, and other agents can use plain text). If several agents are running you pick the target, and the button stays disabled while the agent is working or waiting for permission, so it never interrupts it.
 - **Status bar**: the number of issues in progress.
 - **English and Spanish**: the panel follows Orca's UI language.
@@ -54,7 +55,7 @@ Orca's panel has no network access. Everything goes through the plugin's worker,
 ## Security
 
 - **There are no credentials in this repository.** Each person pastes their own API key in the panel.
-- The key is stored in Orca's encrypted keyring (`secrets:own`), not in settings or storage.
+- The keys (one per account) are stored in Orca's encrypted keyring (`secrets:own`), not in settings or storage. Storage only keeps account names and which one is active.
 - It is validated against Hilbana before it is saved, and it is only ever sent to the configured server URL (`https://`; `http://` only for localhost).
 - To **only browse** issues, a read-only API key is enough. Changing state, claiming/releasing and commenting need a key with write permissions; with a read-only key the plugin says so.
 - It is a `trusted-worker`: it runs with your user's permissions. Review the code before approving it.
@@ -63,7 +64,7 @@ Requested capabilities: `settings:own`, `secrets:own`, `storage:own`, `workspace
 
 ## Install
 
-In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250 and a Hilbana API key. The Free plan includes one agent key, and this plugin only needs a key, so you can use the one your agent already uses. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.6.1`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
+In Orca: **Settings → Plugins → Add plugin → From Git URL**, and enter `https://github.com/hilbana/orca-plugin`. Requires Orca ≥ 1.4.250 and a Hilbana API key. The Free plan includes one agent key, and this plugin only needs a key, so you can use the one your agent already uses. To pin a release, add its tag: `https://github.com/hilbana/orca-plugin#v0.7.0`. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 

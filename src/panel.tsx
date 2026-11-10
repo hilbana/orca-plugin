@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Callout,
+  Collapsible,
   Card,
   EmptyState,
   env,
@@ -30,10 +31,16 @@ import {
 } from 'orca'
 import { langOf, setLang, stateName, t } from './i18n'
 import { extractRefs } from './match'
-import type { AgentInfo, IssueDetail, IssueRef, IssueRow, Scope, StateTone, WorkflowState } from './protocol'
+import type { Account, AgentInfo, IssueDetail, IssueRef, IssueRow, Scope, StateTone, WorkflowState } from './protocol'
 
 const connected = atom<boolean | null>(null)
 const keyDraft = atom('')
+const nameDraft = atom('')
+/** Hilbana logins with a key saved, and the one every request uses (the worker owns this choice). */
+const accounts = atom<Account[]>([])
+const accountId = atom('')
+/** Show the connect form to add another account, even though one is already connected. */
+const adding = atom(false)
 const error = atom<string | null>(null)
 const busy = atom(false)
 const issues = atom<IssueRow[]>([])
@@ -63,6 +70,8 @@ const notice = atom<string | null>(null)
 const orcaKey = atom('')
 const linkNote = atom<string | null>(null)
 const projectFilter = atom('')
+/** The account / workspace / project block can fold away once it is set, to leave room for the list. */
+const filtersOpen = atom('filtersOpen', true, { persist: 'plugin' })
 
 /** Orca rejects options with an empty value: "all" uses this sentinel. */
 const ALL = '__all__'
@@ -125,6 +134,8 @@ async function runInAgent(identifier: string): Promise<void> {
 async function bootstrap(): Promise<void> {
   const status = await plugin.request('auth.status')
   set(connected, status.connected)
+  set(accounts, status.accounts)
+  set(accountId, status.activeId ?? '')
   if (!status.connected) return
   await guard(async () => {
     const list = await plugin.request('workspaces.list')
@@ -138,18 +149,50 @@ async function bootstrap(): Promise<void> {
   })
 }
 
+/** Everything on screen belongs to the account that was active: forget it before loading the new one. */
+function forgetAccountState(): void {
+  set(workspaceId, '')
+  set(projectId, '')
+  set(projectFilter, '')
+  set(detail, null)
+  set(trail, [])
+  set(mentions, [])
+  set(issues, [])
+  set(total, 0)
+}
+
+/** Make another saved account the active one and load its workspaces. */
+async function switchAccount(id: string): Promise<void> {
+  await plugin.request('account.select', { accountId: id })
+  forgetAccountState()
+  await bootstrap()
+}
+
 const connect = () =>
   guard(async () => {
-    await plugin.request('auth.save', { key: read(keyDraft) })
+    const input: { key: string; name?: string } = { key: read(keyDraft) }
+    if (read(nameDraft).trim()) input.name = read(nameDraft).trim()
+    await plugin.request('auth.save', input)
     set(keyDraft, '') // the key does not linger in the panel's memory
+    set(nameDraft, '')
+    set(adding, false)
+    forgetAccountState() // the new account is now the active one
     await bootstrap()
   })
 
-const disconnect = () =>
+const cancelAdding = () => {
+  set(keyDraft, '')
+  set(nameDraft, '')
+  set(adding, false)
+  set(error, null)
+}
+
+/** Removes the active account and its key; if another is left, the panel carries on with it. */
+const removeAccount = () =>
   guard(async () => {
-    await plugin.request('auth.clear')
-    set(connected, false)
-    set(issues, [])
+    await plugin.request('auth.clear', { accountId: read(accountId) })
+    forgetAccountState()
+    await bootstrap()
   })
 
 /** Mentions of other issues in the description and comments, validated against real issues. */
@@ -289,7 +332,11 @@ async function followWorkspace(displayName: string, branch: string): Promise<voi
   const found = await plugin.request('workspace.resolve', input)
   set(orcaKey, found.key)
   set(linkNote, found.source === 'link' ? t('rememberedFor', { key: found.key }) : found.source === 'name' ? t('matchedByName', { key: found.key }) : null)
-  // A remembered Hilbana workspace first (if you still belong to it), then the project inside it.
+  // The account first: its workspaces and projects are what the rest of the link refers to.
+  if (found.accountId && found.accountId !== read(accountId) && read(accounts).some((a) => a.id === found.accountId)) {
+    await guard(() => switchAccount(found.accountId!))
+  }
+  // A remembered Hilbana workspace next (if you still belong to it), then the project inside it.
   const switching = Boolean(found.workspaceId) && found.workspaceId !== read(workspaceId) && read(workspaces).some((w) => w.id === found.workspaceId)
   if (switching) await guard(() => switchWorkspace(found.workspaceId!))
   if (!found.projectId) {
@@ -312,14 +359,16 @@ async function followWorkspace(displayName: string, branch: string): Promise<voi
   }
 }
 
-/** The person chose a Hilbana workspace or project by hand: remember both for this Orca workspace. */
+/** The person chose a Hilbana account, workspace or project by hand: remember them for this Orca workspace. */
 async function rememberChoice(): Promise<void> {
   const key = read(orcaKey)
   if (!read(follow) || !key) return
   const chosenProject = read(projectId) || null
   const chosenWorkspace = read(workspaceId) || null
-  await plugin.request('workspace.link', { key, projectId: chosenProject, workspaceId: chosenWorkspace })
-  set(linkNote, chosenProject || chosenWorkspace ? t('rememberedFor', { key }) : null)
+  // With a single account there is nothing to remember about it.
+  const chosenAccount = read(accounts).length > 1 ? read(accountId) || null : null
+  await plugin.request('workspace.link', { key, projectId: chosenProject, workspaceId: chosenWorkspace, accountId: chosenAccount })
+  set(linkNote, chosenProject || chosenWorkspace || chosenAccount ? t('rememberedFor', { key }) : null)
 }
 
 /** Runs once before the first render. */
@@ -346,15 +395,23 @@ function describe(issue: IssueRow): string {
 }
 
 function Connect() {
+  const another = read(accounts).length > 0
   return (
     <Stack gap="sm">
       <Row gap="xs">
         <Image src="assets/icon.png" alt="Hilbana" size="xs" />
-        <Heading>{t('connectTitle')}</Heading>
+        <Heading>{another ? t('addAccount') : t('connectTitle')}</Heading>
       </Row>
       <Text muted size="sm">
         {t('connectHelp')}
       </Text>
+      {another ? <Text muted size="sm">{t('addAccountHelp')}</Text> : null}
+      <Input
+        label={t('accountName')}
+        placeholder={t('accountNamePlaceholder')}
+        value={read(nameDraft)}
+        onChange={(v) => set(nameDraft, v)}
+      />
       <Input
         label={t('apiKey')}
         type="password"
@@ -363,9 +420,12 @@ function Connect() {
         onChange={(v) => set(keyDraft, v)}
         onSubmit={connect}
       />
-      <Button onPress={connect} disabled={read(busy) || !read(keyDraft).trim()}>
-        {t('connect')}
-      </Button>
+      <Row gap="xs">
+        <Button onPress={connect} disabled={read(busy) || !read(keyDraft).trim()}>
+          {t('connect')}
+        </Button>
+        {another ? <Button variant="outline" onPress={cancelAdding}>{t('cancel')}</Button> : null}
+      </Row>
     </Stack>
   )
 }
@@ -401,6 +461,12 @@ function Board() {
     searchTimer = setTimeout(runSearch, 250)
   }
   const wsOptions = read(workspaces).map((w) => ({ value: w.id, label: w.name }))
+  // What the folded block shows: where you are, e.g. "Work › Drapps › Hilbana (SaaS)".
+  const where = [
+    read(accounts).length > 1 ? read(accounts).find((a) => a.id === read(accountId))?.name : null,
+    wsOptions.length > 1 ? wsOptions.find((w) => w.value === read(workspaceId))?.label : null,
+    read(projects).find((p) => p.id === read(projectId))?.name ?? t('allProjects')
+  ].filter(Boolean).join(' › ')
   const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const pjNeedle = norm(read(projectFilter).trim())
   const pjOptions = [
@@ -421,9 +487,24 @@ function Board() {
         <Row gap="xs">
           <Badge tone="accent">{rows.length}</Badge>
           <IconButton icon="refresh" label={t('reload')} onPress={() => guard(loadIssues)} disabled={read(busy)} />
-          <IconButton icon="close" label={t('disconnect')} onPress={disconnect} />
+          <IconButton icon="add" label={t('addAccount')} onPress={() => set(adding, true)} />
+          <IconButton icon="close" label={read(accounts).length > 1 ? t('removeAccount') : t('disconnect')} onPress={removeAccount} />
         </Row>
       </Row>
+      <Collapsible title={where} open={read(filtersOpen)} onChange={(open) => set(filtersOpen, open)}>
+      <Stack gap="sm">
+      {read(accounts).length > 1 ? (
+        <Select
+          label={t('account')}
+          labelHidden
+          value={read(accountId)}
+          options={read(accounts).map((a) => ({ value: a.id, label: a.name }))}
+          onChange={(v) => {
+            if (v === read(accountId)) return
+            void guard(() => switchAccount(v)).then(() => rememberChoice()).catch(() => undefined)
+          }}
+        />
+      ) : null}
       {wsOptions.length > 1 ? (
         <Select
           label={t('workspace')}
@@ -457,6 +538,8 @@ function Board() {
         }}
       />
       {read(linkNote) ? <Text muted size="xs">{read(linkNote)}</Text> : null}
+      </Stack>
+      </Collapsible>
       <Select
         label={t('state')}
         labelHidden
@@ -469,9 +552,6 @@ function Board() {
         <Input label={t('search')} labelHidden type="search" placeholder={t('searchIssues')} value={read(search)} onChange={typeSearch} onSubmit={runSearch} />
         <IconButton icon="search" label={t('search')} onPress={runSearch} disabled={read(busy)} />
       </Row>
-      {searching ? (
-        <Callout tone="accent">{t('searchNotice', { q: read(activeQuery) })}</Callout>
-      ) : null}
       {read(total) > read(issues).length ? (
         <Callout tone="warning">{t('showing', { n: read(issues).length, total: read(total) })}</Callout>
       ) : null}
@@ -637,7 +717,7 @@ export default function Panel() {
   return (
     <Stack gap="md">
       {read(error) ? <Callout tone="danger" title={t('error')}>{read(error)}</Callout> : null}
-      {state === null ? <Spinner label={t('connecting')} /> : !state ? <Connect /> : read(detail) ? <Detail issue={read(detail)!} /> : <Board />}
+      {state === null ? <Spinner label={t('connecting')} /> : !state || read(adding) ? <Connect /> : read(detail) ? <Detail issue={read(detail)!} /> : <Board />}
     </Stack>
   )
 }

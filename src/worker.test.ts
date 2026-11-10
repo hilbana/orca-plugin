@@ -49,7 +49,9 @@ test('saves the key after validating it and lists issues with Bearer', async () 
   )
   const host = mockHost({})
   const worker = await mountWorker(main, { host })
-  assert.deepEqual(await worker.request('auth.save', { key: 'hil_abcdefgh1234' }), { workspaces: 1 })
+  const saved = await worker.request('auth.save', { key: 'hil_abcdefgh1234' })
+  assert.equal(saved.workspaces, 1)
+  assert.deepEqual((await worker.request('auth.status')).accounts, [{ id: saved.accountId, name: 'WS' }])
   const issues = await worker.request('issues.list', { scope: 'started' })
   assert.equal(issues.total, 1)
   assert.equal(issues.rows[0]?.identifier, 'DRAPPS-1')
@@ -283,7 +285,7 @@ test('a link remembers the Hilbana workspace too, and scopes the lookups to it',
   try {
     await worker.request('auth.save', { key: 'hil_abcdefgh1234' })
     // legacy string links still work
-    assert.deepEqual(await worker.request('workspace.resolve', { displayName: 'old', branch: '' }), { key: 'old', workspaceId: null, projectId: 'pA', source: 'link', issue: null })
+    assert.deepEqual(await worker.request('workspace.resolve', { displayName: 'old', branch: '' }), { key: 'old', accountId: null, workspaceId: null, projectId: 'pA', source: 'link', issue: null })
 
     // workspace linked, project not: the project is found by name inside THAT workspace
     await worker.request('workspace.link', { key: 'beta.com', projectId: null, workspaceId: 'wB' })
@@ -294,7 +296,7 @@ test('a link remembers the Hilbana workspace too, and scopes the lookups to it',
 
     // workspace + project both remembered
     await worker.request('workspace.link', { key: 'beta.com', projectId: 'bB', workspaceId: 'wB' })
-    assert.deepEqual(await worker.request('workspace.resolve', { displayName: 'beta.com', branch: '', workspaceId: 'wA' }), { key: 'beta.com', workspaceId: 'wB', projectId: 'bB', source: 'link', issue: null })
+    assert.deepEqual(await worker.request('workspace.resolve', { displayName: 'beta.com', branch: '', workspaceId: 'wA' }), { key: 'beta.com', accountId: null, workspaceId: 'wB', projectId: 'bB', source: 'link', issue: null })
 
     // forgetting removes both
     await worker.request('workspace.link', { key: 'beta.com', projectId: null, workspaceId: null })
@@ -440,6 +442,68 @@ test('the list still works when the colours cannot be read', async () => {
     const page = await worker.request('issues.list', { scope: 'open' })
     assert.equal(page.rows.length, 1)
     assert.equal(page.rows[0]?.stateTone, 'success', 'falls back to the category')
+  } finally {
+    globalThis.fetch = original
+    await worker.deactivate()
+  }
+})
+
+test('several accounts: each has its own key, the link picks one, and the old key is adopted', async () => {
+  const original = globalThis.fetch
+  const seen: { tool: string; auth: string | null; workspaceId?: string }[] = []
+  globalThis.fetch = (async (_u: unknown, init: RequestInit) => {
+    const { params } = JSON.parse(String(init.body))
+    const auth = new Headers(init.headers).get('authorization')
+    seen.push({ tool: params.name, auth, workspaceId: params.arguments?.workspaceId })
+    if (params.name === 'list_workspaces') {
+      return rpc(auth === 'Bearer hil_personal0000' ? [{ id: 'wP', name: 'Mine', slug: 'm', role: 'owner', default: true }] : [{ id: 'wC', name: 'Company', slug: 'c', role: 'owner', default: true }])
+    }
+    if (params.name === 'list_projects') return rpc(auth === 'Bearer hil_personal0000' ? [{ id: 'pP', name: 'Garden' }] : [{ id: 'pC', name: 'Shop' }])
+    return rpc([])
+  }) as typeof fetch
+  // A key saved by an earlier version, before accounts existed.
+  const host = mockHost({ secrets: { apiKey: 'hil_company0000' }, results: { 'workspace.list': orcaList({ name: 'garden.com', path: '/x/garden.com' }) } })
+  const worker = await mountWorker(main, { host })
+  try {
+    const first = await worker.request('auth.status')
+    assert.deepEqual(first.accounts, [{ id: 'default', name: 'Company' }])
+    assert.equal(first.activeId, 'default')
+
+    const second = await worker.request('auth.save', { key: 'hil_personal0000', name: 'Personal' })
+    assert.equal((await worker.request('auth.status')).activeId, second.accountId)
+    seen.length = 0
+    assert.deepEqual(await worker.request('projects.list', {}), [{ id: 'pP', name: 'Garden' }])
+    assert.equal(seen.at(-1)?.auth, 'Bearer hil_personal0000')
+
+    await worker.request('account.select', { accountId: 'default' })
+    assert.deepEqual(await worker.request('projects.list', {}), [{ id: 'pC', name: 'Shop' }])
+    await assert.rejects(() => worker.request('account.select', { accountId: 'nope' }))
+
+    // The Orca workspace is linked to the personal account while the company one is active:
+    // its lookups run with the personal key and the panel's (company) workspace is not used.
+    await worker.request('workspace.link', { key: 'garden.com', projectId: null, workspaceId: null, accountId: second.accountId })
+    seen.length = 0
+    const found = await worker.request('workspace.resolve', { displayName: 'garden.com', branch: '', workspaceId: 'wC' })
+    assert.equal(found.accountId, second.accountId)
+    assert.equal(found.projectId, 'pP')
+    assert.ok(seen.filter((c) => c.tool === 'list_projects').every((c) => c.auth === 'Bearer hil_personal0000' && c.workspaceId === undefined))
+
+    // Typing an existing name replaces that account's key instead of adding a duplicate.
+    await worker.request('auth.save', { key: 'hil_personal1111', name: 'personal' })
+    assert.equal((await worker.request('auth.status')).accounts.length, 2)
+    assert.equal(host.data().secrets[`apiKey-${second.accountId}`], 'hil_personal1111')
+
+    // Removing an account drops its key and a link that points to it.
+    const left = await worker.request('auth.clear', { accountId: second.accountId })
+    assert.equal(left.activeId, 'default')
+    assert.equal(host.data().secrets[`apiKey-${second.accountId}`], undefined)
+    const again = await worker.request('workspace.resolve', { displayName: 'garden.com', branch: '', workspaceId: 'wC' })
+    assert.equal(again.accountId, null)
+    assert.equal(again.source, null)
+
+    // Removing the last one disconnects.
+    await worker.request('auth.clear', { accountId: 'default' })
+    assert.equal((await worker.request('auth.status')).connected, false)
   } finally {
     globalThis.fetch = original
     await worker.deactivate()

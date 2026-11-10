@@ -2,6 +2,15 @@
 
 All notable changes to this plugin. Versions are tagged `vX.Y.Z`; the tag must match `version` in `orca-plugin.json`.
 
+## 0.7.0 - 2026-11-10
+
+- **Several Hilbana accounts**: connect more than one API key (for instance your company's Hilbana user and your personal one) and switch between them from the panel. Each key lives in Orca's keyring under its own entry; give the account a name, or it takes the name of its default workspace. A name you type that already exists replaces that account's key.
+- **Each Orca workspace remembers its account**: choosing an account, workspace or project by hand is saved for the Orca workspace you are in, and following Orca switches to that account first. The branch convention (`drapps-2139-…`) and the name match work inside the remembered account.
+- The key you already had is adopted as your first account: nothing to reconnect.
+- The status bar counts the active account's issues and names it in the tooltip when there are several.
+- **Foldable filters**: the account, workspace and project controls fold into one line (e.g. `Work › Drapps › Hilbana (SaaS)`) to leave room for the list. The open/folded choice is remembered.
+- Removed the notice that appeared above search results.
+
 ## 0.6.1 - 2026-11-09
 
 - Store listing: a cover and four screenshots for the Orca plugin directory, and updated README screenshots that show the state colours and sub-issues. No change to the plugin itself.

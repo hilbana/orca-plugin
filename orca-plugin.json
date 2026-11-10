@@ -3,7 +3,7 @@
   "manifestVersion": 2,
   "id": "hilbana",
   "name": "Hilbana",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Your Hilbana issues inside Orca: list, filters, search, detail, state changes, comments, a status bar counter and a button that runs the Hilbana command in your agent.",
   "repository": "https://github.com/hilbana/orca-plugin",
   "license": "MIT",

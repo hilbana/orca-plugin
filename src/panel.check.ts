@@ -45,7 +45,7 @@ const detail: IssueDetail = {
 const compact: IssueDetail = { ...detail, relations: [], comments: [] }
 
 const common = {
-  'auth.status': { connected: true, url: 'https://app.hilbana.com/mcp', protection: 'os-keyring' as const },
+  'auth.status': { connected: true, url: 'https://app.hilbana.com/mcp', protection: 'os-keyring' as const, accounts: [{ id: 'a1', name: 'Acme' }], activeId: 'a1' },
   'locale.set': { ok: true as const },
   'workspaces.list': [{ id: 'w1', name: 'Acme', default: true }],
   'projects.list': [{ id: 'p-web', name: 'Acme Web' }, { id: 'p-mobile', name: 'Acme Mobile' }, { id: 'p-api', name: 'Platform API' }],
@@ -60,13 +60,13 @@ const common = {
 }
 
 export default defineCheck({
-  connect: { requests: { ...common, 'auth.status': { connected: false, url: 'https://app.hilbana.com/mcp', protection: 'os-keyring' as const } } },
+  connect: { requests: { ...common, 'auth.status': { connected: false, url: 'https://app.hilbana.com/mcp', protection: 'os-keyring' as const, accounts: [], activeId: null } } },
   list: { requests: common, persisted: { plugin: { scope: 'all' } } },
   // The branch names ACME-142, so following the Orca workspace opens that issue.
   detail: {
     requests: {
       ...common,
-      'workspace.resolve': { key: 'acme-web', workspaceId: null, projectId: 'p-web', source: 'branch' as const, issue: { id: 'i-142', identifier: 'ACME-142' } },
+      'workspace.resolve': { key: 'acme-web', accountId: null, workspaceId: null, projectId: 'p-web', source: 'branch' as const, issue: { id: 'i-142', identifier: 'ACME-142' } },
       'issue.get': compact,
       'issues.resolve': []
     },
@@ -77,7 +77,7 @@ export default defineCheck({
   full: {
     requests: {
       ...common,
-      'workspace.resolve': { key: 'acme-web', workspaceId: null, projectId: 'p-web', source: 'branch' as const, issue: { id: 'i-142', identifier: 'ACME-142' } },
+      'workspace.resolve': { key: 'acme-web', accountId: null, workspaceId: null, projectId: 'p-web', source: 'branch' as const, issue: { id: 'i-142', identifier: 'ACME-142' } },
       'issue.get': detail,
       'issues.resolve': [
         { id: 'i-138', identifier: 'ACME-138', title: 'Add dark mode to the settings page', state: 'In Review', stateTone: 'neutral' as const },

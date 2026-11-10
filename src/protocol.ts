@@ -46,16 +46,24 @@ export type AgentInfo = {
   state: 'working' | 'blocked' | 'waiting' | 'done'
 }
 export type WorkflowState = { id: string; name: string; type: string }
+/** A Hilbana login (user) with its own API key. A key reaches every workspace of its user, so a
+ *  second account only matters when it is another user (say a personal one next to a company one). */
+export type Account = { id: string; name: string }
 
 declare module 'orca' {
   interface PluginRequests {
     /** Tells the worker Orca's UI language so its messages match the panel. */
     'locale.set': { input: { locale: string }; output: { ok: true } }
     /** Is an API key saved? Never returns the key. */
-    'auth.status': { output: { connected: boolean; url: string; protection: string } }
-    /** Validates the key against Hilbana and, if it works, saves it in Orca's keyring. */
-    'auth.save': { input: { key: string }; output: { workspaces: number } }
-    'auth.clear': { output: { ok: true } }
+    'auth.status': { output: { connected: boolean; url: string; protection: string; accounts: Account[]; activeId: string | null } }
+    /** Validates the key against Hilbana and, if it works, saves it in Orca's keyring as an account
+     *  and makes it the active one. A name already in use replaces that account's key. Without a
+     *  name, the account takes the name of its default workspace. */
+    'auth.save': { input: { key: string; name?: string }; output: { workspaces: number; accountId: string } }
+    /** Removes an account (default: the active one) and its key. */
+    'auth.clear': { input: { accountId?: string }; output: { ok: true; activeId: string | null } }
+    /** Makes an account the one every other request talks to. */
+    'account.select': { input: { accountId: string }; output: { ok: true } }
     'workspaces.list': {
       output: { id: string; name: string; default: boolean }[]
     }
@@ -74,6 +82,8 @@ declare module 'orca' {
       input: { displayName: string; branch: string; workspaceId?: string }
       output: {
         key: string
+        /** The account this Orca workspace was linked to (null = leave the active one). */
+        accountId: string | null
         /** The Hilbana workspace this Orca workspace was linked to; null = leave the current one. */
         workspaceId: string | null
         projectId: string | null
@@ -81,8 +91,8 @@ declare module 'orca' {
         issue: { id: string; identifier: string } | null
       }
     }
-    /** Remember which Hilbana workspace and project an Orca workspace belongs to (both null = forget). */
-    'workspace.link': { input: { key: string; projectId: string | null; workspaceId?: string | null }; output: { ok: true } }
+    /** Remember which Hilbana account, workspace and project an Orca workspace belongs to (all null = forget). */
+    'workspace.link': { input: { key: string; projectId: string | null; workspaceId?: string | null; accountId?: string | null }; output: { ok: true } }
     /** Which of these identifiers (mentioned in a text) are real issues; the rest are dropped. */
     'issues.resolve': { input: { identifiers: string[]; workspaceId?: string }; output: IssueRef[] }
     /** Agents running in the focused Orca workspace. */
